@@ -23,10 +23,24 @@ class TennisDatabase:
         )
 
     def init_database(self):
-        """Initialize database tables if they don't exist"""
+        """Check if tables exist and show setup instructions if not"""
         try:
-            # Create tournaments table
-            self.conn.query("""
+            # Try to check if tables exist by doing a simple query
+            result = self.conn.table("tournaments").select("id").limit(1).execute()
+            # If we get here, tables exist
+            return True
+        except Exception as e:
+            # Tables likely don't exist, show setup instructions
+            st.error("Database tables not found. Please set up your database first.")
+            with st.expander("🔧 Database Setup Instructions", expanded=True):
+                st.markdown("""
+                **Please run this SQL in your Supabase SQL Editor to create the required tables:**
+                
+                ```sql
+                -- Enable UUID extension
+                CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+                
+                -- Create tournaments table
                 CREATE TABLE IF NOT EXISTS tournaments (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     name TEXT NOT NULL,
@@ -37,11 +51,9 @@ class TennisDatabase:
                     owner_id TEXT NOT NULL,
                     owner_email TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT NOW()
-                )
-            """, ttl=0).execute()
-
-            # Create matches table
-            self.conn.query("""
+                );
+                
+                -- Create matches table
                 CREATE TABLE IF NOT EXISTS matches (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -55,11 +67,9 @@ class TennisDatabase:
                     played_at TIMESTAMP,
                     start_time_minutes INTEGER,
                     end_time_minutes INTEGER
-                )
-            """, ttl=0).execute()
-
-            # Create team_stats table
-            self.conn.query("""
+                );
+                
+                -- Create team_stats table
                 CREATE TABLE IF NOT EXISTS team_stats (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -71,11 +81,19 @@ class TennisDatabase:
                     points_against INTEGER DEFAULT 0,
                     ranking_points INTEGER DEFAULT 0,
                     UNIQUE(tournament_id, team_name)
-                )
-            """, ttl=0).execute()
-
-        except Exception as e:
-            st.error(f"Database initialization error: {e}")
+                );
+                ```
+                
+                **Steps:**
+                1. Go to your Supabase project dashboard
+                2. Navigate to SQL Editor
+                3. Create a new query
+                4. Copy and paste the SQL above
+                5. Run the query
+                6. Refresh this page
+                """)
+            st.stop()
+            return False
 
     def create_tournament(self, name, teams, num_courts, players_per_team, mode, owner_id, owner_email):
         """Create a tournament for the logged-in user"""
