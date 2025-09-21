@@ -539,6 +539,270 @@ class TennisScheduler:
         
         return stats
 
+def show_match_distribution_preview(teams, schedule, mode_type):
+    """Zeigt eine Vorschau der Match-Verteilung nach Turnier-Erstellung"""
+    
+    # Berechne Match-Anzahl pro Team aus dem Schedule
+    team_match_count = Counter()
+    
+    for round_data in schedule:
+        if isinstance(round_data, dict):  # Zeitbasierte Planung
+            matches = round_data['matches']
+        else:  # Standard Liste von Matches
+            matches = round_data
+        
+        for match in matches:
+            team1, team2 = match
+            team_match_count[team1] += 1
+            team_match_count[team2] += 1
+    
+    # Fairness-Bewertung
+    max_matches = max(team_match_count.values()) if team_match_count else 0
+    min_matches = min(team_match_count.values()) if team_match_count else 0
+    difference = max_matches - min_matches
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Gesamte Matches", sum(team_match_count.values()) // 2)
+    with col2:
+        st.metric("Ø Matches/Team", f"{sum(team_match_count.values()) / len(teams):.1f}")
+    with col3:
+        st.metric("Max-Min Differenz", difference)
+    with col4:
+        if difference <= 1:
+            st.success("✅ Sehr fair")
+        elif difference <= 2:
+            st.warning("⚖️ Akzeptabel")
+        else:
+            st.error("⚠️ Ungleich")
+    
+    # Team-Match-Übersicht in Spalten
+    num_cols = min(len(teams), 8)  # Max 8 Spalten
+    team_cols = st.columns(num_cols)
+    
+    for i, team in enumerate(sorted(teams)):
+        with team_cols[i % num_cols]:
+            matches = team_match_count.get(team, 0)
+            
+            # Farbkodierung
+            if matches == max_matches:
+                delta_color = "inverse" if difference > 1 else "normal"
+            elif matches == min_matches:
+                delta_color = "normal"
+            else:
+                delta_color = "off"
+            
+            st.metric(
+                f"{team[:12]}", 
+                f"{matches} Matches",
+                delta=f"+{matches - min_matches}" if difference > 0 and matches > min_matches else None,
+                delta_color=delta_color
+            )
+    
+    # Zusätzliche Info je nach Modus
+    if mode_type == "time_based":
+        st.info(f"⏱️ Zeitbasierte Planung: {len(schedule)} Runden geplant")
+    elif mode_type == "round_robin":
+        total_possible = len(teams) * (len(teams) - 1) // 2
+        actual_matches = sum(team_match_count.values()) // 2
+        st.info(f"🔄 Round-Robin: {actual_matches} von {total_possible} möglichen Begegnungen geplant")
+    else:
+        st.info(f"🎯 Einzelrunde: {len([m for round_data in schedule for m in (round_data['matches'] if isinstance(round_data, dict) else round_data)])} Matches")
+
+def show_team_match_overview(tournament_id, matches, teams):
+    """Zeigt eine kompakte Übersicht der Match-Verteilung pro Team"""
+    st.subheader("⚖️ Match-Verteilung pro Team")
+    
+    # Berechne Match-Anzahl pro Team
+    team_match_count = Counter()
+    team_played_count = Counter()
+    
+    for match in matches:
+        team_match_count[match['team1']] += 1
+        team_match_count[match['team2']] += 1
+        
+        if match['winner']:  # Match wurde gespielt
+            team_played_count[match['team1']] += 1
+            team_played_count[match['team2']] += 1
+    
+    # Fairness-Bewertung
+    max_matches = max(team_match_count.values()) if team_match_count else 0
+    min_matches = min(team_match_count.values()) if team_match_count else 0
+    difference = max_matches - min_matches
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Max Matches/Team", max_matches)
+    with col2:
+        st.metric("Min Matches/Team", min_matches)
+    with col3:
+        st.metric("Differenz", difference)
+    with col4:
+        if difference <= 1:
+            st.success("✅ Faire Verteilung")
+        elif difference <= 2:
+            st.warning("⚖️ Akzeptabel")
+        else:
+            st.error("⚠️ Ungleiche Verteilung")
+    
+    # Kompakte Team-Übersicht
+    team_cols = st.columns(min(len(teams), 6))
+    for i, team in enumerate(sorted(teams)):
+        with team_cols[i % len(team_cols)]:
+            total_matches = team_match_count.get(team, 0)
+            played_matches = team_played_count.get(team, 0)
+            
+            # Farbkodierung basierend auf Match-Anzahl
+            if total_matches == max_matches:
+                color = "🔴"  # Meiste Matches
+            elif total_matches == min_matches:
+                color = "🟢"  # Wenigste Matches
+            else:
+                color = "🟡"  # Mittlere Anzahl
+            
+            st.metric(
+                f"{color} {team[:10]}", 
+                f"{played_matches}/{total_matches}",
+                delta=f"{total_matches - min_matches}" if difference > 0 else None
+            )
+
+def show_detailed_team_overview(tournament_id, matches, teams):
+    """Zeigt eine detaillierte Team-Übersicht mit allen Statistiken"""
+    st.subheader("📊 Detaillierte Team-Übersicht")
+    
+    # Berechne detaillierte Statistiken pro Team
+    team_stats = {}
+    
+    for team in teams:
+        team_stats[team] = {
+            'total_matches': 0,
+            'played_matches': 0,
+            'pending_matches': 0,
+            'opponents': [],
+            'upcoming_opponents': [],
+            'next_match_round': None
+        }
+    
+    # Sammle Match-Daten
+    for match in matches:
+        team1, team2 = match['team1'], match['team2']
+        
+        # Team 1
+        team_stats[team1]['total_matches'] += 1
+        team_stats[team1]['opponents'].append(team2)
+        
+        if match['winner']:
+            team_stats[team1]['played_matches'] += 1
+        else:
+            team_stats[team1]['pending_matches'] += 1
+            team_stats[team1]['upcoming_opponents'].append(team2)
+            if team_stats[team1]['next_match_round'] is None:
+                team_stats[team1]['next_match_round'] = match['round_number']
+        
+        # Team 2
+        team_stats[team2]['total_matches'] += 1
+        team_stats[team2]['opponents'].append(team1)
+        
+        if match['winner']:
+            team_stats[team2]['played_matches'] += 1
+        else:
+            team_stats[team2]['pending_matches'] += 1
+            team_stats[team2]['upcoming_opponents'].append(team1)
+            if team_stats[team2]['next_match_round'] is None:
+                team_stats[team2]['next_match_round'] = match['round_number']
+    
+    # Erstelle Übersichtstabelle
+    overview_data = []
+    for team in sorted(teams):
+        stats = team_stats[team]
+        next_opponents = ", ".join(stats['upcoming_opponents'][:3])  # Zeige max. 3 nächste Gegner
+        if len(stats['upcoming_opponents']) > 3:
+            next_opponents += f" (+{len(stats['upcoming_opponents']) - 3} weitere)"
+        
+        overview_data.append({
+            "Team": team,
+            "Gesamt Matches": stats['total_matches'],
+            "Gespielt": stats['played_matches'],
+            "Ausstehend": stats['pending_matches'],
+            "Fortschritt %": f"{(stats['played_matches'] / stats['total_matches'] * 100):.0f}%" if stats['total_matches'] > 0 else "0%",
+            "Nächste Runde": stats['next_match_round'] if stats['next_match_round'] else "Fertig",
+            "Nächste Gegner": next_opponents if next_opponents else "Keine ausstehenden Matches"
+        })
+    
+    df_overview = pd.DataFrame(overview_data)
+    st.dataframe(df_overview, hide_index=True, use_container_width=True)
+    
+    # Visualisierung der Match-Verteilung
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Balkendiagramm: Gesamt-Matches pro Team
+        fig_total = px.bar(
+            x=[stats['Team'] for stats in overview_data],  # FIXED: Changed from 'team' to 'Team'
+            y=[stats['Gesamt Matches'] for stats in overview_data],
+            title="Gesamt-Matches pro Team",
+            labels={'x': 'Teams', 'y': 'Anzahl Matches'},
+            color=[stats['Gesamt Matches'] for stats in overview_data],
+            color_continuous_scale="Blues"
+        )
+        fig_total.update_layout(xaxis_tickangle=-45, showlegend=False)
+        st.plotly_chart(fig_total, use_container_width=True)
+    
+    with col2:
+        # Gestapeltes Balkendiagramm: Gespielt vs. Ausstehend
+        teams_list = [stats['Team'] for stats in overview_data]  # FIXED: Changed from 'team' to 'Team'
+        played_list = [stats['Gespielt'] for stats in overview_data]  # FIXED: Changed from 'played_matches' to 'Gespielt'
+        pending_list = [stats['Ausstehend'] for stats in overview_data]  # FIXED: Changed from 'pending_matches' to 'Ausstehend'
+        
+        fig_progress = go.Figure(data=[
+            go.Bar(name='Gespielt', x=teams_list, y=played_list),
+            go.Bar(name='Ausstehend', x=teams_list, y=pending_list)
+        ])
+        fig_progress.update_layout(
+            barmode='stack',
+            title="Match-Fortschritt pro Team",
+            xaxis_title="Teams",
+            yaxis_title="Anzahl Matches",
+            xaxis_tickangle=-45
+        )
+        st.plotly_chart(fig_progress, use_container_width=True)
+    
+    # Match-Matrix (wer spielt gegen wen)
+    st.subheader("🔄 Match-Matrix")
+    
+    # Erstelle Matrix der Begegnungen
+    matrix_data = []
+    for team1 in sorted(teams):
+        row_data = {"Team": team1}
+        for team2 in sorted(teams):
+            if team1 == team2:
+                row_data[team2] = "-"
+            else:
+                # Prüfe ob diese Teams gegeneinander spielen
+                match_found = False
+                match_played = False
+                for match in matches:
+                    if (match['team1'] == team1 and match['team2'] == team2) or \
+                       (match['team1'] == team2 and match['team2'] == team1):
+                        match_found = True
+                        if match['winner']:
+                            match_played = True
+                        break
+                
+                if match_found and match_played:
+                    row_data[team2] = "✅"
+                elif match_found:
+                    row_data[team2] = "⏳"
+                else:
+                    row_data[team2] = "❌"
+        
+        matrix_data.append(row_data)
+    
+    df_matrix = pd.DataFrame(matrix_data)
+    st.dataframe(df_matrix, hide_index=True, use_container_width=True)
+    
+    st.caption("✅ = Gespielt | ⏳ = Geplant | ❌ = Kein Match geplant")
+
 def main():
     st.set_page_config(
         page_title="🎾 Tennis Turnier System",
@@ -664,6 +928,11 @@ def create_new_tournament():
                 if "error" not in stats:
                     st.session_state.db.save_matches(tournament_id, schedule)
                     st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                    
+                    # Zeige Match-Verteilung direkt nach Erstellung
+                    st.subheader("⚖️ Geplante Match-Verteilung")
+                    show_match_distribution_preview(teams, schedule, "time_based")
+                    
                     st.balloons()
                 else:
                     st.error(f"⚠️ {stats['error']}")
@@ -672,6 +941,11 @@ def create_new_tournament():
                 schedule = scheduler.create_round_robin_schedule()
                 st.session_state.db.save_matches(tournament_id, schedule)
                 st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                
+                # Zeige Match-Verteilung direkt nach Erstellung
+                st.subheader("⚖️ Geplante Match-Verteilung")
+                show_match_distribution_preview(teams, schedule, "round_robin")
+                
                 st.balloons()
             
             else:  # Einzelne Runde
@@ -679,6 +953,10 @@ def create_new_tournament():
                 schedule = [matches]
                 st.session_state.db.save_matches(tournament_id, schedule)
                 st.success(f"✅ Runde erfolgreich erstellt!")
+                
+                # Zeige Match-Verteilung direkt nach Erstellung
+                st.subheader("⚖️ Match-Verteilung dieser Runde")
+                show_match_distribution_preview(teams, schedule, "single_round")
         
         elif submitted:
             st.error("⚠️ Mindestens 2 Teams erforderlich!")
@@ -718,8 +996,13 @@ def manage_tournaments():
         matches = st.session_state.db.get_matches(tournament_id)
         
         if matches:
+            # Match-Verteilung pro Team anzeigen
+            show_team_match_overview(tournament_id, matches, tournament['teams'])
+            
+            st.markdown("---")
+            
             # Tabs für Match-Verwaltung
-            match_tab1, match_tab2, match_tab3 = st.tabs(["🎮 Ergebnisse eintragen", "📅 Spielplan", "🏅 Aktuelles Ranking"])
+            match_tab1, match_tab2, match_tab3, match_tab4 = st.tabs(["🎮 Ergebnisse eintragen", "📅 Spielplan", "🏅 Aktuelles Ranking", "📊 Team-Übersicht"])
             
             with match_tab1:
                 enter_match_results(tournament_id, matches)
@@ -729,6 +1012,9 @@ def manage_tournaments():
             
             with match_tab3:
                 show_tournament_ranking(tournament_id)
+            
+            with match_tab4:
+                show_detailed_team_overview(tournament_id, matches, tournament['teams'])
         else:
             st.info("📋 Keine Matches für dieses Turnier gefunden.")
 
