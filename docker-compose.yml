@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  tennis-scheduler:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_HEADLESS=true
+    restart: unless-stopped
+    container_name: tennis-scheduler-app
+    
+    # Optional: Volume für Persistenz
+    # volumes:
+    #   - ./data:/app/data
