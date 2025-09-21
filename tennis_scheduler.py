@@ -6,9 +6,294 @@ import math
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import sqlite3
+import json
+from datetime import datetime, timedelta
+import os
+
+class TennisDatabase:
+    def __init__(self, db_path="tennis_scheduler.db"):
+        self.db_path = db_path
+        self.init_database()
+    
+    def init_database(self):
+        """Initialisiert die SQLite-Datenbank"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Turniere Tabelle
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournaments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                teams TEXT NOT NULL,
+                num_courts INTEGER NOT NULL,
+                players_per_team INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                mode TEXT NOT NULL
+            )
+        ''')
+        
+        # Matches Tabelle
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id INTEGER NOT NULL,
+                round_number INTEGER NOT NULL,
+                court_number INTEGER NOT NULL,
+                team1 TEXT NOT NULL,
+                team2 TEXT NOT NULL,
+                winner TEXT,
+                team1_score INTEGER DEFAULT 0,
+                team2_score INTEGER DEFAULT 0,
+                played_at TIMESTAMP,
+                start_time_minutes INTEGER,
+                end_time_minutes INTEGER,
+                FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
+            )
+        ''')
+        
+        # Team-Statistiken Tabelle
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS team_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id INTEGER NOT NULL,
+                team_name TEXT NOT NULL,
+                matches_played INTEGER DEFAULT 0,
+                matches_won INTEGER DEFAULT 0,
+                matches_lost INTEGER DEFAULT 0,
+                points_for INTEGER DEFAULT 0,
+                points_against INTEGER DEFAULT 0,
+                ranking_points INTEGER DEFAULT 0,
+                FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
+                UNIQUE(tournament_id, team_name)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+    
+    def create_tournament(self, name, teams, num_courts, players_per_team, mode):
+        """Erstellt ein neues Turnier"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        teams_json = json.dumps(teams)
+        cursor.execute('''
+            INSERT INTO tournaments (name, teams, num_courts, players_per_team, mode)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (name, teams_json, num_courts, players_per_team, mode))
+        
+        tournament_id = cursor.lastrowid
+        
+        # Initiale Team-Statistiken erstellen
+        for team in teams:
+            cursor.execute('''
+                INSERT OR REPLACE INTO team_stats 
+                (tournament_id, team_name, matches_played, matches_won, matches_lost, points_for, points_against, ranking_points)
+                VALUES (?, ?, 0, 0, 0, 0, 0, 0)
+            ''', (tournament_id, team))
+        
+        conn.commit()
+        conn.close()
+        return tournament_id
+    
+    def save_matches(self, tournament_id, schedule):
+        """Speichert Matches in die Datenbank"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Lösche existierende Matches für dieses Turnier
+        cursor.execute('DELETE FROM matches WHERE tournament_id = ?', (tournament_id,))
+        
+        for round_num, round_data in enumerate(schedule, 1):
+            if isinstance(round_data, dict):  # Zeitbasierte Planung
+                matches = round_data['matches']
+                start_time = round_data.get('start_time', 0)
+                end_time = round_data.get('end_time', 0)
+            else:  # Standard Liste von Matches
+                matches = round_data
+                start_time = (round_num - 1) * 20
+                end_time = start_time + 15
+            
+            for court_num, match in enumerate(matches, 1):
+                team1, team2 = match
+                cursor.execute('''
+                    INSERT INTO matches 
+                    (tournament_id, round_number, court_number, team1, team2, start_time_minutes, end_time_minutes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (tournament_id, round_num, court_num, team1, team2, start_time, end_time))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_tournaments(self):
+        """Holt alle Turniere"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, name, teams, num_courts, players_per_team, created_at, mode
+            FROM tournaments
+            ORDER BY created_at DESC
+        ''')
+        
+        tournaments = []
+        for row in cursor.fetchall():
+            tournaments.append({
+                'id': row[0],
+                'name': row[1],
+                'teams': json.loads(row[2]),
+                'num_courts': row[3],
+                'players_per_team': row[4],
+                'created_at': row[5],
+                'mode': row[6]
+            })
+        
+        conn.close()
+        return tournaments
+    
+    def get_matches(self, tournament_id):
+        """Holt alle Matches eines Turniers"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, round_number, court_number, team1, team2, winner, 
+                   team1_score, team2_score, played_at, start_time_minutes, end_time_minutes
+            FROM matches 
+            WHERE tournament_id = ?
+            ORDER BY round_number, court_number
+        ''', (tournament_id,))
+        
+        matches = []
+        for row in cursor.fetchall():
+            matches.append({
+                'id': row[0],
+                'round_number': row[1],
+                'court_number': row[2],
+                'team1': row[3],
+                'team2': row[4],
+                'winner': row[5],
+                'team1_score': row[6],
+                'team2_score': row[7],
+                'played_at': row[8],
+                'start_time_minutes': row[9],
+                'end_time_minutes': row[10]
+            })
+        
+        conn.close()
+        return matches
+    
+    def update_match_result(self, match_id, winner, team1_score, team2_score):
+        """Aktualisiert das Ergebnis eines Matches"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE matches 
+            SET winner = ?, team1_score = ?, team2_score = ?, played_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (winner, team1_score, team2_score, match_id))
+        
+        # Hole Match-Informationen für Statistik-Update
+        cursor.execute('''
+            SELECT tournament_id, team1, team2, winner FROM matches WHERE id = ?
+        ''', (match_id,))
+        
+        match_info = cursor.fetchone()
+        if match_info:
+            tournament_id, team1, team2, match_winner = match_info
+            self._update_team_stats(cursor, tournament_id, team1, team2, match_winner, team1_score, team2_score)
+        
+        conn.commit()
+        conn.close()
+    
+    def _update_team_stats(self, cursor, tournament_id, team1, team2, winner, team1_score, team2_score):
+        """Aktualisiert Team-Statistiken nach einem Match"""
+        # Team 1 Stats
+        cursor.execute('''
+            SELECT matches_played, matches_won, matches_lost, points_for, points_against, ranking_points
+            FROM team_stats WHERE tournament_id = ? AND team_name = ?
+        ''', (tournament_id, team1))
+        
+        team1_stats = cursor.fetchone()
+        if team1_stats:
+            played, won, lost, pf, pa, rp = team1_stats
+            new_played = played + 1
+            new_won = won + (1 if winner == team1 else 0)
+            new_lost = lost + (1 if winner == team2 else 0)
+            new_pf = pf + team1_score
+            new_pa = pa + team2_score
+            new_rp = rp + (3 if winner == team1 else 1 if winner == 'Draw' else 0)
+            
+            cursor.execute('''
+                UPDATE team_stats 
+                SET matches_played = ?, matches_won = ?, matches_lost = ?, 
+                    points_for = ?, points_against = ?, ranking_points = ?
+                WHERE tournament_id = ? AND team_name = ?
+            ''', (new_played, new_won, new_lost, new_pf, new_pa, new_rp, tournament_id, team1))
+        
+        # Team 2 Stats
+        cursor.execute('''
+            SELECT matches_played, matches_won, matches_lost, points_for, points_against, ranking_points
+            FROM team_stats WHERE tournament_id = ? AND team_name = ?
+        ''', (tournament_id, team2))
+        
+        team2_stats = cursor.fetchone()
+        if team2_stats:
+            played, won, lost, pf, pa, rp = team2_stats
+            new_played = played + 1
+            new_won = won + (1 if winner == team2 else 0)
+            new_lost = lost + (1 if winner == team1 else 0)
+            new_pf = pf + team2_score
+            new_pa = pa + team1_score
+            new_rp = rp + (3 if winner == team2 else 1 if winner == 'Draw' else 0)
+            
+            cursor.execute('''
+                UPDATE team_stats 
+                SET matches_played = ?, matches_won = ?, matches_lost = ?, 
+                    points_for = ?, points_against = ?, ranking_points = ?
+                WHERE tournament_id = ? AND team_name = ?
+            ''', (new_played, new_won, new_lost, new_pf, new_pa, new_rp, tournament_id, team2))
+    
+    def get_ranking(self, tournament_id):
+        """Holt das Ranking für ein Turnier"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT team_name, matches_played, matches_won, matches_lost, 
+                   points_for, points_against, ranking_points
+            FROM team_stats 
+            WHERE tournament_id = ?
+            ORDER BY ranking_points DESC, matches_won DESC, (points_for - points_against) DESC
+        ''', (tournament_id,))
+        
+        ranking = []
+        for i, row in enumerate(cursor.fetchall(), 1):
+            team_name, played, won, lost, pf, pa, rp = row
+            win_rate = (won / played * 100) if played > 0 else 0
+            goal_diff = pf - pa
+            
+            ranking.append({
+                'position': i,
+                'team': team_name,
+                'matches_played': played,
+                'matches_won': won,
+                'matches_lost': lost,
+                'win_rate': win_rate,
+                'points_for': pf,
+                'points_against': pa,
+                'goal_difference': goal_diff,
+                'ranking_points': rp
+            })
+        
+        conn.close()
+        return ranking
 
 class TennisScheduler:
-    def __init__(self, num_courts, teams, players_per_team=4):
+    def __init__(self, num_courts, teams, players_per_team=4, db=None):
         self.num_courts = num_courts
         self.teams = teams if isinstance(teams, list) else [f"Team {i+1}" for i in range(teams)]
         self.num_teams = len(self.teams)
@@ -16,6 +301,7 @@ class TennisScheduler:
         self.max_players_per_round = num_courts * 2
         self.players_per_team = players_per_team
         self.max_simultaneous_matches_per_team = players_per_team // 2
+        self.db = db
         
     def generate_all_possible_matches(self):
         """Generiert alle möglichen Matches zwischen verschiedenen Teams"""
@@ -255,73 +541,94 @@ class TennisScheduler:
 
 def main():
     st.set_page_config(
-        page_title="🎾 Tennis Platz Verteilungssystem",
+        page_title="🎾 Tennis Turnier System",
         page_icon="🎾",
         layout="wide"
     )
     
-    st.title("🎾 Tennis Platz Verteilungssystem")
+    # Initialisiere Datenbank
+    if 'db' not in st.session_state:
+        db_path = "/app/data/tennis_scheduler.db" if os.path.exists("/app") else "tennis_scheduler.db"
+        st.session_state.db = TennisDatabase(db_path)
+    
+    st.title("🎾 Tennis Turnier System")
     st.markdown("---")
     
-    with st.sidebar:
-        st.header("⚙️ Einstellungen")
+    # Hauptnavigation
+    tab1, tab2, tab3, tab4 = st.tabs(["🏆 Neues Turnier", "📋 Aktuelle Turniere", "🏅 Ranking", "📊 Statistiken"])
+    
+    with tab1:
+        create_new_tournament()
+    
+    with tab2:
+        manage_tournaments()
+    
+    with tab3:
+        show_rankings()
+    
+    with tab4:
+        show_statistics()
+
+def create_new_tournament():
+    """Tab für die Erstellung neuer Turniere"""
+    st.header("🏆 Neues Turnier erstellen")
+    
+    with st.form("new_tournament_form"):
+        col1, col2 = st.columns(2)
         
-        # Anzahl der Tennisplätze
-        num_courts = st.number_input(
-            "Anzahl der Tennisplätze",
-            min_value=1,
-            max_value=20,
-            value=4,
-            step=1
-        )
-        
-        # Team-Eingabe
-        st.subheader("Teams")
-        input_method = st.radio(
-            "Team-Eingabemethode:",
-            ["Anzahl Teams", "Team-Namen eingeben"]
-        )
-        
-        if input_method == "Anzahl Teams":
-            num_teams = st.number_input(
-                "Anzahl der Teams",
-                min_value=2,
-                max_value=50,
-                value=8,
+        with col1:
+            tournament_name = st.text_input(
+                "Turnier Name",
+                value=f"Tennis Turnier {datetime.now().strftime('%d.%m.%Y')}"
+            )
+            
+            num_courts = st.number_input(
+                "Anzahl der Tennisplätze",
+                min_value=1,
+                max_value=20,
+                value=4,
                 step=1
             )
-            teams = [f"Team {i+1}" for i in range(num_teams)]
-        else:
-            team_names = st.text_area(
-                "Team-Namen (eine pro Zeile):",
-                value="Team 1\nTeam 2\nTeam 3\nTeam 4\nTeam 5\nTeam 6\nTeam 7\nTeam 8",
-                height=150
+            
+            players_per_team = st.number_input(
+                "Spieler pro Team",
+                min_value=2,
+                max_value=8,
+                value=4,
+                step=1,
+                help="Jedes Team kann gleichzeitig auf max. 2 Plätzen spielen (bei 4 Spielern)"
             )
-            teams = [name.strip() for name in team_names.split('\n') if name.strip()]
         
-        # Spieler pro Team
-        players_per_team = st.number_input(
-            "Spieler pro Team",
-            min_value=2,
-            max_value=8,
-            value=4,
-            step=1,
-            help="Jedes Team kann gleichzeitig auf max. 2 Plätzen spielen (bei 4 Spielern)"
-        )
+        with col2:
+            input_method = st.radio(
+                "Team-Eingabemethode:",
+                ["Anzahl Teams", "Team-Namen eingeben"]
+            )
+            
+            if input_method == "Anzahl Teams":
+                num_teams = st.number_input(
+                    "Anzahl der Teams",
+                    min_value=2,
+                    max_value=50,
+                    value=8,
+                    step=1
+                )
+                teams = [f"Team {i+1}" for i in range(num_teams)]
+            else:
+                team_names = st.text_area(
+                    "Team-Namen (eine pro Zeile):",
+                    value="Team 1\nTeam 2\nTeam 3\nTeam 4\nTeam 5\nTeam 6\nTeam 7\nTeam 8",
+                    height=150
+                )
+                teams = [name.strip() for name in team_names.split('\n') if name.strip()]
         
-        st.info(f"📊 {len(teams)} Teams konfiguriert\n👥 {players_per_team} Spieler pro Team")
-        
-        # Modus-Auswahl
-        st.subheader("Modus")
-        mode = st.radio(
-            "Spielmodus auswählen:",
-            ["Zeitbasierte Planung", "Einzelne Runde", "Vollständiges Turnier (Round-Robin)"]
+        mode = st.selectbox(
+            "Turnier-Modus:",
+            ["Zeitbasierte Planung", "Vollständiges Turnier (Round-Robin)", "Einzelne Runde"]
         )
         
         # Zeitbasierte Einstellungen
         if mode == "Zeitbasierte Planung":
-            st.subheader("⏰ Zeitplanung")
-            
             time_input_method = st.radio(
                 "Zeit-Eingabe:",
                 ["Stunden und Minuten", "Nur Minuten"]
@@ -340,396 +647,404 @@ def main():
                     step=20,
                     help="Mindestens 20 Minuten für eine Runde"
                 )
+        
+        submitted = st.form_submit_button("🚀 Turnier erstellen", type="primary")
+        
+        if submitted and len(teams) >= 2:
+            # Erstelle Turnier in der Datenbank
+            tournament_id = st.session_state.db.create_tournament(
+                tournament_name, teams, num_courts, players_per_team, mode
+            )
             
-            st.info(f"⏱️ Gesamtdauer: {total_minutes} Minuten ({total_minutes//60}h {total_minutes%60}min)")
-            st.info(f"🏟️ Pro Runde: 15 min Spiel + 5 min Pause = 20 min")
-            st.info(f"🔄 Mögliche Runden: {total_minutes // 20}")
+            # Erstelle Spielplan
+            scheduler = TennisScheduler(num_courts, teams, players_per_team, st.session_state.db)
+            
+            if mode == "Zeitbasierte Planung":
+                schedule, stats = scheduler.create_time_based_schedule(total_minutes)
+                if "error" not in stats:
+                    st.session_state.db.save_matches(tournament_id, schedule)
+                    st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                    st.balloons()
+                else:
+                    st.error(f"⚠️ {stats['error']}")
+            
+            elif mode == "Vollständiges Turnier (Round-Robin)":
+                schedule = scheduler.create_round_robin_schedule()
+                st.session_state.db.save_matches(tournament_id, schedule)
+                st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                st.balloons()
+            
+            else:  # Einzelne Runde
+                matches = scheduler.create_single_round_distribution()
+                schedule = [matches]
+                st.session_state.db.save_matches(tournament_id, schedule)
+                st.success(f"✅ Runde erfolgreich erstellt!")
+        
+        elif submitted:
+            st.error("⚠️ Mindestens 2 Teams erforderlich!")
+
+def manage_tournaments():
+    """Tab für die Verwaltung bestehender Turniere"""
+    st.header("📋 Turnier Verwaltung")
     
-    # Hauptbereich
-    if len(teams) < 2:
-        st.error("⚠️ Mindestens 2 Teams erforderlich!")
+    tournaments = st.session_state.db.get_tournaments()
+    
+    if not tournaments:
+        st.info("📋 Noch keine Turniere erstellt. Gehe zum Tab 'Neues Turnier' um zu starten.")
         return
     
-    scheduler = TennisScheduler(num_courts, teams, players_per_team)
+    # Turnier auswählen
+    tournament_options = {f"{t['name']} ({t['created_at'][:10]})": t['id'] for t in tournaments}
+    selected_tournament_name = st.selectbox("Turnier auswählen:", list(tournament_options.keys()))
     
-    # Zeige Basisinformationen
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Teams", len(teams))
+    if selected_tournament_name:
+        tournament_id = tournament_options[selected_tournament_name]
+        tournament = next(t for t in tournaments if t['id'] == tournament_id)
+        
+        st.subheader(f"🏆 {tournament['name']}")
+        
+        # Turnier Info
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Teams", len(tournament['teams']))
+        with col2:
+            st.metric("Plätze", tournament['num_courts'])
+        with col3:
+            st.metric("Spieler/Team", tournament['players_per_team'])
+        with col4:
+            st.metric("Modus", tournament['mode'])
+        
+        # Matches laden
+        matches = st.session_state.db.get_matches(tournament_id)
+        
+        if matches:
+            # Tabs für Match-Verwaltung
+            match_tab1, match_tab2, match_tab3 = st.tabs(["🎮 Ergebnisse eintragen", "📅 Spielplan", "🏅 Aktuelles Ranking"])
+            
+            with match_tab1:
+                enter_match_results(tournament_id, matches)
+            
+            with match_tab2:
+                show_match_schedule(matches, tournament)
+            
+            with match_tab3:
+                show_tournament_ranking(tournament_id)
+        else:
+            st.info("📋 Keine Matches für dieses Turnier gefunden.")
+
+def enter_match_results(tournament_id, matches):
+    """Interface für die Eingabe von Match-Ergebnissen"""
+    st.subheader("🎮 Match-Ergebnisse eintragen")
+    
+    # Filter für ungespielte Matches
+    unplayed_matches = [m for m in matches if not m['winner']]
+    played_matches = [m for m in matches if m['winner']]
+    
+    col1, col2 = st.columns([2, 1])
+    
     with col2:
-        st.metric("Plätze", num_courts)
-    with col3:
-        possible_matches = len(scheduler.generate_all_possible_matches())
-        st.metric("Mögliche Matches", possible_matches)
-    with col4:
-        max_simultaneous = scheduler.max_simultaneous_matches_per_team
-        st.metric("Max Matches/Team gleichzeitig", max_simultaneous)
-    
-    st.markdown("---")
-    
-    if mode == "Zeitbasierte Planung":
-        st.header("⏰ Zeitbasierte Planung")
+        st.metric("Offene Matches", len(unplayed_matches))
+        st.metric("Gespielte Matches", len(played_matches))
+        st.metric("Fortschritt", f"{len(played_matches)}/{len(matches)}")
         
-        if st.button("🚀 Zeitplan generieren", type="primary"):
-            with st.spinner("Generiere zeitbasierten Spielplan..."):
-                schedule, stats = scheduler.create_time_based_schedule(total_minutes)
+        if len(matches) > 0:
+            progress = len(played_matches) / len(matches)
+            st.progress(progress)
+    
+    with col1:
+        if unplayed_matches:
+            # Gruppiere Matches nach Runden
+            rounds = {}
+            for match in unplayed_matches:
+                round_num = match['round_number']
+                if round_num not in rounds:
+                    rounds[round_num] = []
+                rounds[round_num].append(match)
             
-            if "error" in stats:
-                st.error(f"⚠️ {stats['error']}")
-                return
-            
-            # Tabs für verschiedene Ansichten
-            tab1, tab2, tab3, tab4 = st.tabs(["🕒 Zeitplan", "📊 Statistiken", "📈 Visualisierung", "📋 Zusammenfassung"])
-            
-            with tab1:
-                st.subheader("🗓️ Detaillierter Zeitplan")
-                
-                for round_data in schedule:
-                    round_num = round_data['round']
-                    matches = round_data['matches']
-                    start_time = round_data['start_time']
-                    end_time = round_data['end_time']
+            for round_num in sorted(rounds.keys()):
+                with st.expander(f"🎾 Runde {round_num}", expanded=True):
+                    round_matches = rounds[round_num]
                     
-                    start_h, start_m = divmod(start_time, 60)
-                    end_h, end_m = divmod(end_time, 60)
-                    
-                    with st.expander(f"🎾 Runde {round_num} ({start_h:02d}:{start_m:02d} - {end_h:02d}:{end_m:02d})", expanded=True):
-                        if matches:
-                            match_data = []
-                            for i, match in enumerate(matches, 1):
-                                team1, team2 = match
-                                match_data.append({
-                                    "Platz": i,
-                                    "Team 1": team1,
-                                    "vs": "vs",
-                                    "Team 2": team2,
-                                    "Zeit": f"{start_h:02d}:{start_m:02d} - {end_h:02d}:{end_m:02d}"
-                                })
+                    for match in round_matches:
+                        with st.container():
+                            st.markdown(f"**Platz {match['court_number']}:** {match['team1']} vs {match['team2']}")
                             
-                            df_round = pd.DataFrame(match_data)
-                            st.dataframe(df_round, hide_index=True, use_container_width=True)
-                        else:
-                            st.info("Keine Matches in dieser Runde")
-            
-            with tab2:
-                st.subheader("📊 Zeitplan-Statistiken")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Geplante Zeit", f"{stats['planned_duration']} min")
-                with col2:
-                    st.metric("Tatsächliche Zeit", f"{stats['actual_duration']} min")
-                with col3:
-                    st.metric("Zeiteffizienz", f"{stats['efficiency']:.1f}%")
-                with col4:
-                    st.metric("Platzauslastung", f"{stats['court_utilization']:.1f}%")
-                
-                col5, col6, col7, col8 = st.columns(4)
-                with col5:
-                    st.metric("Gesamte Matches", stats['total_matches'])
-                with col6:
-                    st.metric("Ø Spiele pro Team", f"{stats['avg_games_per_team']:.1f}")
-                with col7:
-                    st.metric("Min Spiele", stats['min_games'])
-                with col8:
-                    st.metric("Max Spiele", stats['max_games'])
-                
-                # Fairness-Bewertung
-                difference = stats['games_difference']
-                if difference <= 1:
-                    st.success("✅ Sehr faire Verteilung!")
-                elif difference <= 2:
-                    st.warning("⚖️ Akzeptable Verteilung")
-                else:
-                    st.error("⚠️ Ungleiche Verteilung")
-                
-                # Team-Spiele Tabelle
-                st.subheader("🏅 Spiele pro Team")
-                team_stats = []
-                for team in sorted(teams):
-                    count = stats['team_counts'].get(team, 0)
-                    team_stats.append({
-                        "Team": team,
-                        "Anzahl Spiele": count,
-                        "Spielzeit (min)": count * 15,  # 15 min pro Match
-                        "Prozent der Max-Spiele": f"{(count / stats['max_games'] * 100):.1f}%" if stats['max_games'] > 0 else "0%"
-                    })
-                
-                df_stats = pd.DataFrame(team_stats)
-                st.dataframe(df_stats, hide_index=True, use_container_width=True)
-            
-            with tab3:
-                st.subheader("📈 Visualisierungen")
-                
-                if stats['team_counts']:
-                    # Balkendiagramm für Spiele pro Team
-                    df_viz = pd.DataFrame([
-                        {"Team": team, "Spiele": count}
-                        for team, count in stats['team_counts'].items()
-                    ])
-                    
-                    fig_bar = px.bar(
-                        df_viz,
-                        x="Team",
-                        y="Spiele",
-                        title="Anzahl Spiele pro Team",
-                        color="Spiele",
-                        color_continuous_scale="Blues"
-                    )
-                    fig_bar.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig_bar, use_container_width=True)
-                    
-                    # Zeitachse der Runden
-                    timeline_data = []
-                    for round_data in schedule:
-                        round_num = round_data['round']
-                        start_time = round_data['start_time']
-                        end_time = round_data['end_time']
-                        matches = len(round_data['matches'])
-                        
-                        timeline_data.append({
-                            "Runde": f"Runde {round_num}",
-                            "Start": start_time,
-                            "Ende": end_time,
-                            "Matches": matches
-                        })
-                    
-                    df_timeline = pd.DataFrame(timeline_data)
-                    
-                    fig_timeline = px.timeline(
-                        df_timeline,
-                        x_start="Start",
-                        x_end="Ende",
-                        y="Runde",
-                        color="Matches",
-                        title="Zeitplan-Timeline",
-                        labels={"Start": "Zeit (Minuten)", "Ende": "Zeit (Minuten)"}
-                    )
-                    st.plotly_chart(fig_timeline, use_container_width=True)
-            
-            with tab4:
-                st.subheader("📋 Zeitplan-Zusammenfassung")
-                
-                st.write("**Zeitplan-Details:**")
-                st.write(f"- **Teams:** {len(teams)} ({players_per_team} Spieler pro Team)")
-                st.write(f"- **Plätze:** {num_courts}")
-                st.write(f"- **Runden:** {stats['total_rounds']}")
-                st.write(f"- **Gesamte Matches:** {stats['total_matches']}")
-                st.write(f"- **Geplante Zeit:** {stats['planned_duration']} Minuten")
-                st.write(f"- **Tatsächliche Spielzeit:** {stats['actual_duration']} Minuten")
-                st.write(f"- **Platzauslastung:** {stats['court_utilization']:.1f}%")
-                
-                # Export für Zeitplan
-                st.subheader("💾 Export")
-                
-                export_data = []
-                for round_data in schedule:
-                    round_num = round_data['round']
-                    start_time = round_data['start_time']
-                    end_time = round_data['end_time']
-                    start_h, start_m = divmod(start_time, 60)
-                    end_h, end_m = divmod(end_time, 60)
-                    
-                    for court_num, match in enumerate(round_data['matches'], 1):
-                        team1, team2 = match
-                        export_data.append({
-                            "Runde": round_num,
-                            "Platz": court_num,
-                            "Team 1": team1,
-                            "Team 2": team2,
-                            "Startzeit": f"{start_h:02d}:{start_m:02d}",
-                            "Endzeit": f"{end_h:02d}:{end_m:02d}",
-                            "Dauer": "15 min"
-                        })
-                
-                if export_data:
-                    df_export = pd.DataFrame(export_data)
-                    csv = df_export.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Zeitplan als CSV herunterladen",
-                        data=csv,
-                        file_name="tennis_zeitplan.csv",
-                        mime="text/csv"
-                    )
+                            col_team1, col_vs, col_team2, col_action = st.columns([2, 1, 2, 2])
+                            
+                            with col_team1:
+                                team1_score = st.number_input(
+                                    f"Punkte {match['team1']}",
+                                    min_value=0,
+                                    max_value=100,
+                                    value=0,
+                                    key=f"team1_score_{match['id']}"
+                                )
+                            
+                            with col_vs:
+                                st.markdown("**:**")
+                            
+                            with col_team2:
+                                team2_score = st.number_input(
+                                    f"Punkte {match['team2']}",
+                                    min_value=0,
+                                    max_value=100,
+                                    value=0,
+                                    key=f"team2_score_{match['id']}"
+                                )
+                            
+                            with col_action:
+                                col_buttons = st.columns(3)
+                                with col_buttons[0]:
+                                    if st.button(f"🏆 {match['team1'][:8]}", key=f"win1_{match['id']}"):
+                                        st.session_state.db.update_match_result(
+                                            match['id'], match['team1'], team1_score, team2_score
+                                        )
+                                        st.success(f"✅ {match['team1']} gewinnt!")
+                                        st.rerun()
+                                
+                                with col_buttons[1]:
+                                    if st.button("🤝 Unentschieden", key=f"draw_{match['id']}"):
+                                        st.session_state.db.update_match_result(
+                                            match['id'], 'Draw', team1_score, team2_score
+                                        )
+                                        st.success("✅ Unentschieden eingetragen!")
+                                        st.rerun()
+                                
+                                with col_buttons[2]:
+                                    if st.button(f"🏆 {match['team2'][:8]}", key=f"win2_{match['id']}"):
+                                        st.session_state.db.update_match_result(
+                                            match['id'], match['team2'], team1_score, team2_score
+                                        )
+                                        st.success(f"✅ {match['team2']} gewinnt!")
+                                        st.rerun()
+                            
+                            st.markdown("---")
+        else:
+            st.success("🎉 Alle Matches wurden gespielt!")
+            st.balloons()
+
+def show_match_schedule(matches, tournament):
+    """Zeigt den Spielplan an"""
+    st.subheader("📅 Spielplan")
     
-    elif mode == "Einzelne Runde":
-        st.header("🎯 Einzelne Runde")
-        
-        if st.button("🎮 Runde generieren", type="primary"):
-            matches = scheduler.create_single_round_distribution()
-            
-            if not matches:
-                st.error("Keine Matches möglich - zu wenige Teams!")
-                return
-            
-            # Zeige Matches
-            st.subheader("🏟️ Platz-Verteilung")
+    # Gruppiere Matches nach Runden
+    rounds = {}
+    for match in matches:
+        round_num = match['round_number']
+        if round_num not in rounds:
+            rounds[round_num] = []
+        rounds[round_num].append(match)
+    
+    for round_num in sorted(rounds.keys()):
+        with st.expander(f"🎾 Runde {round_num}", expanded=False):
+            round_matches = rounds[round_num]
             
             match_data = []
-            for i, match in enumerate(matches, 1):
-                team1, team2 = match
+            for match in round_matches:
+                status = "✅" if match['winner'] else "⏳"
+                result = ""
+                if match['winner']:
+                    if match['winner'] == 'Draw':
+                        result = f"{match['team1_score']}:{match['team2_score']} (Unentschieden)"
+                    else:
+                        result = f"{match['team1_score']}:{match['team2_score']} (Sieger: {match['winner']})"
+                
+                # Zeitinformationen
+                time_info = ""
+                if match['start_time_minutes'] is not None:
+                    start_h, start_m = divmod(match['start_time_minutes'], 60)
+                    end_h, end_m = divmod(match['end_time_minutes'], 60)
+                    time_info = f"{start_h:02d}:{start_m:02d} - {end_h:02d}:{end_m:02d}"
+                
                 match_data.append({
-                    "Platz": i,
-                    "Team 1": team1,
-                    "vs": "vs",
-                    "Team 2": team2
+                    "Status": status,
+                    "Platz": match['court_number'],
+                    "Team 1": match['team1'],
+                    "Team 2": match['team2'],
+                    "Ergebnis": result,
+                    "Zeit": time_info
                 })
             
             df_matches = pd.DataFrame(match_data)
             st.dataframe(df_matches, hide_index=True, use_container_width=True)
-            
-            # Zeige wartende Teams
-            used_teams = set()
-            for match in matches:
-                used_teams.update(match)
-            unused_teams = set(teams) - used_teams
-            
-            if unused_teams:
-                st.subheader("⏳ Wartende Teams")
-                waiting_cols = st.columns(min(len(unused_teams), 5))
-                for i, team in enumerate(sorted(unused_teams)):
-                    with waiting_cols[i % len(waiting_cols)]:
-                        st.info(team)
+
+def show_tournament_ranking(tournament_id):
+    """Zeigt das aktuelle Ranking an"""
+    st.subheader("🏅 Aktuelles Ranking")
     
-    else:  # Vollständiges Turnier
-        st.header("🏆 Vollständiges Turnier (Round-Robin)")
+    ranking = st.session_state.db.get_ranking(tournament_id)
+    
+    if ranking:
+        # Top 3 Podium
+        if len(ranking) >= 3:
+            col1, col2, col3 = st.columns(3)
+            
+            with col2:  # 1. Platz in der Mitte
+                st.markdown("### 🥇")
+                st.markdown(f"**{ranking[0]['team']}**")
+                st.markdown(f"🏆 {ranking[0]['ranking_points']} Punkte")
+                st.markdown(f"📊 {ranking[0]['matches_won']}/{ranking[0]['matches_played']} Siege")
+            
+            with col1:  # 2. Platz links
+                if len(ranking) > 1:
+                    st.markdown("### 🥈")
+                    st.markdown(f"**{ranking[1]['team']}**")
+                    st.markdown(f"🏆 {ranking[1]['ranking_points']} Punkte")
+                    st.markdown(f"📊 {ranking[1]['matches_won']}/{ranking[1]['matches_played']} Siege")
+            
+            with col3:  # 3. Platz rechts
+                if len(ranking) > 2:
+                    st.markdown("### 🥉")
+                    st.markdown(f"**{ranking[2]['team']}**")
+                    st.markdown(f"🏆 {ranking[2]['ranking_points']} Punkte")
+                    st.markdown(f"📊 {ranking[2]['matches_won']}/{ranking[2]['matches_played']} Siege")
         
-        if st.button("🚀 Turnier generieren", type="primary"):
-            with st.spinner("Generiere Turnierplan..."):
-                schedule = scheduler.create_round_robin_schedule()
-                stats = scheduler.get_team_participation_stats(schedule)
+        st.markdown("---")
+        
+        # Vollständige Tabelle
+        ranking_data = []
+        for team in ranking:
+            ranking_data.append({
+                "Platz": f"{team['position']}.",
+                "Team": team['team'],
+                "Spiele": team['matches_played'],
+                "Siege": team['matches_won'],
+                "Niederlagen": team['matches_lost'],
+                "Siegquote %": f"{team['win_rate']:.1f}%",
+                "Punkte +": team['points_for'],
+                "Punkte -": team['points_against'],
+                "Differenz": f"+{team['goal_difference']}" if team['goal_difference'] >= 0 else str(team['goal_difference']),
+                "Rang-Punkte": team['ranking_points']
+            })
+        
+        df_ranking = pd.DataFrame(ranking_data)
+        st.dataframe(df_ranking, hide_index=True, use_container_width=True)
+        
+        # Ranking-Visualisierung
+        if len(ranking) > 1:
+            fig = px.bar(
+                x=[team['team'] for team in ranking],
+                y=[team['ranking_points'] for team in ranking],
+                title="Ranking nach Punkten",
+                labels={'x': 'Teams', 'y': 'Rang-Punkte'},
+                color=[team['ranking_points'] for team in ranking],
+                color_continuous_scale="Blues"
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    else:
+        st.info("🎾 Noch keine Spiele gespielt - Ranking wird nach den ersten Ergebnissen angezeigt.")
+
+def show_rankings():
+    """Tab für Gesamt-Rankings"""
+    st.header("🏅 Turnier-Rankings")
+    
+    tournaments = st.session_state.db.get_tournaments()
+    
+    if not tournaments:
+        st.info("📋 Noch keine Turniere vorhanden.")
+        return
+    
+    for tournament in tournaments:
+        with st.expander(f"🏆 {tournament['name']} ({tournament['created_at'][:10]})", expanded=False):
+            ranking = st.session_state.db.get_ranking(tournament['id'])
             
-            # Tabs für verschiedene Ansichten
-            tab1, tab2, tab3, tab4 = st.tabs(["📅 Spielplan", "📊 Statistiken", "📈 Visualisierung", "📋 Zusammenfassung"])
-            
-            with tab1:
-                st.subheader("🗓️ Detaillierter Spielplan")
+            if ranking and any(team['matches_played'] > 0 for team in ranking):
+                # Mini-Podium
+                played_teams = [team for team in ranking if team['matches_played'] > 0]
                 
-                for round_num, round_matches in enumerate(schedule, 1):
-                    with st.expander(f"🎾 Runde {round_num}", expanded=True):
-                        match_data = []
-                        for i, match in enumerate(round_matches, 1):
-                            team1, team2 = match
-                            match_data.append({
-                                "Platz": i,
-                                "Team 1": team1,
-                                "vs": "vs",
-                                "Team 2": team2
-                            })
-                        
-                        if match_data:
-                            df_round = pd.DataFrame(match_data)
-                            st.dataframe(df_round, hide_index=True, use_container_width=True)
-                        else:
-                            st.info("Keine Matches in dieser Runde")
-            
-            with tab2:
-                st.subheader("📊 Team-Statistiken")
+                if len(played_teams) >= 1:
+                    st.markdown(f"🥇 **Champion:** {played_teams[0]['team']} ({played_teams[0]['ranking_points']} Punkte)")
                 
-                col1, col2, col3, col4 = st.columns(4)
+                if len(played_teams) >= 2:
+                    st.markdown(f"🥈 **Zweiter:** {played_teams[1]['team']} ({played_teams[1]['ranking_points']} Punkte)")
+                
+                if len(played_teams) >= 3:
+                    st.markdown(f"🥉 **Dritter:** {played_teams[2]['team']} ({played_teams[2]['ranking_points']} Punkte)")
+                
+                # Kurze Statistiken
+                total_matches = sum(team['matches_played'] for team in ranking) // 2  # Jedes Match zählt für 2 Teams
+                matches_in_db = len(st.session_state.db.get_matches(tournament['id']))
+                
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Gesamte Matches", stats['total_matches'])
+                    st.metric("Gespielte Matches", total_matches)
                 with col2:
-                    st.metric("Ø Spiele pro Team", f"{stats['avg_games_per_team']:.1f}")
+                    st.metric("Teams", len(tournament['teams']))
                 with col3:
-                    st.metric("Min Spiele", stats['min_games'])
-                with col4:
-                    st.metric("Max Spiele", stats['max_games'])
-                
-                # Fairness-Bewertung
-                difference = stats['games_difference']
-                if difference <= 1:
-                    st.success("✅ Sehr faire Verteilung!")
-                elif difference <= 2:
-                    st.warning("⚖️ Akzeptable Verteilung")
-                else:
-                    st.error("⚠️ Ungleiche Verteilung - Optimierung empfohlen")
-                
-                # Team-Spiele Tabelle
-                st.subheader("🏅 Spiele pro Team")
-                team_stats = []
-                for team in sorted(teams):
-                    count = stats['team_counts'].get(team, 0)
-                    team_stats.append({
-                        "Team": team,
-                        "Anzahl Spiele": count,
-                        "Prozent der Max-Spiele": f"{(count / stats['max_games'] * 100):.1f}%" if stats['max_games'] > 0 else "0%"
-                    })
-                
-                df_stats = pd.DataFrame(team_stats)
-                st.dataframe(df_stats, hide_index=True, use_container_width=True)
+                    completion = (total_matches / matches_in_db * 100) if matches_in_db > 0 else 0
+                    st.metric("Fortschritt", f"{completion:.0f}%")
             
-            with tab3:
-                st.subheader("📈 Spiele-Verteilung Visualisierung")
-                
-                if stats['team_counts']:
-                    # Balkendiagramm
-                    df_viz = pd.DataFrame([
-                        {"Team": team, "Spiele": count}
-                        for team, count in stats['team_counts'].items()
-                    ])
-                    
-                    fig_bar = px.bar(
-                        df_viz,
-                        x="Team",
-                        y="Spiele",
-                        title="Anzahl Spiele pro Team",
-                        color="Spiele",
-                        color_continuous_scale="Blues"
-                    )
-                    fig_bar.update_layout(xaxis_tickangle=-45)
-                    st.plotly_chart(fig_bar, use_container_width=True)
-                    
-                    # Kreisdiagramm
-                    fig_pie = px.pie(
-                        df_viz,
-                        values="Spiele",
-                        names="Team",
-                        title="Spiele-Verteilung (Prozentual)"
-                    )
-                    st.plotly_chart(fig_pie, use_container_width=True)
-            
-            with tab4:
-                st.subheader("📋 Turnier-Zusammenfassung")
-                
-                st.write("**Turnier-Details:**")
-                st.write(f"- **Teams:** {len(teams)}")
-                st.write(f"- **Plätze:** {num_courts}")
-                st.write(f"- **Runden:** {len(schedule)}")
-                st.write(f"- **Gesamte Matches:** {stats['total_matches']}")
-                st.write(f"- **Matches pro Runde:** {num_courts}")
-                
-                st.write("\n**Team-Liste:**")
-                team_cols = st.columns(min(len(teams), 4))
-                for i, team in enumerate(teams):
-                    with team_cols[i % len(team_cols)]:
-                        games = stats['team_counts'].get(team, 0)
-                        st.metric(team, f"{games} Spiele")
-                
-                # Download-Option für Spielplan
-                st.subheader("💾 Export")
-                
-                # Erstelle Export-Daten
-                export_data = []
-                for round_num, round_matches in enumerate(schedule, 1):
-                    for court_num, match in enumerate(round_matches, 1):
-                        team1, team2 = match
-                        export_data.append({
-                            "Runde": round_num,
-                            "Platz": court_num,
-                            "Team 1": team1,
-                            "Team 2": team2
-                        })
-                
-                if export_data:
-                    df_export = pd.DataFrame(export_data)
-                    csv = df_export.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Spielplan als CSV herunterladen",
-                        data=csv,
-                        file_name="tennis_spielplan.csv",
-                        mime="text/csv"
-                    )
+            else:
+                st.info("🎾 Turnier noch nicht gestartet.")
+
+def show_statistics():
+    """Tab für erweiterte Statistiken"""
+    st.header("📊 Turnier-Statistiken")
+    
+    tournaments = st.session_state.db.get_tournaments()
+    
+    if not tournaments:
+        st.info("📋 Noch keine Turniere vorhanden.")
+        return
+    
+    # Gesamt-Übersicht
+    st.subheader("📈 Gesamt-Übersicht")
+    
+    total_tournaments = len(tournaments)
+    total_teams = sum(len(t['teams']) for t in tournaments)
+    total_matches_all = sum(len(st.session_state.db.get_matches(t['id'])) for t in tournaments)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Turniere", total_tournaments)
+    with col2:
+        st.metric("Teams gesamt", total_teams)
+    with col3:
+        st.metric("Matches gesamt", total_matches_all)
+    with col4:
+        avg_teams = total_teams / total_tournaments if total_tournaments > 0 else 0
+        st.metric("Ø Teams/Turnier", f"{avg_teams:.1f}")
+    
+    # Turnier-Modi Verteilung
+    if tournaments:
+        mode_counts = Counter(t['mode'] for t in tournaments)
+        
+        fig_modes = px.pie(
+            values=list(mode_counts.values()),
+            names=list(mode_counts.keys()),
+            title="Verteilung der Turnier-Modi"
+        )
+        st.plotly_chart(fig_modes, use_container_width=True)
+    
+    # Detaillierte Turnier-Statistiken
+    st.subheader("📋 Detaillierte Statistiken")
+    
+    tournament_stats = []
+    for tournament in tournaments:
+        matches = st.session_state.db.get_matches(tournament['id'])
+        played_matches = len([m for m in matches if m['winner']])
+        ranking = st.session_state.db.get_ranking(tournament['id'])
+        
+        champion = "TBD"
+        if ranking and ranking[0]['matches_played'] > 0:
+            champion = ranking[0]['team']
+        
+        tournament_stats.append({
+            "Turnier": tournament['name'],
+            "Datum": tournament['created_at'][:10],
+            "Modus": tournament['mode'],
+            "Teams": len(tournament['teams']),
+            "Plätze": tournament['num_courts'],
+            "Matches geplant": len(matches),
+            "Matches gespielt": played_matches,
+            "Fortschritt %": f"{(played_matches / len(matches) * 100):.0f}%" if matches else "0%",
+            "Champion": champion
+        })
+    
+    df_stats = pd.DataFrame(tournament_stats)
+    st.dataframe(df_stats, hide_index=True, use_container_width=True)
 
 if __name__ == "__main__":
     main()
