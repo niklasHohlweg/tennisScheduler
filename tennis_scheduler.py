@@ -10,6 +10,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import os
+import time
 
 class TennisDatabase:
     def __init__(self, db_path="tennis_scheduler.db"):
@@ -834,132 +835,285 @@ def main():
         show_statistics()
 
 def create_new_tournament():
-    """Tab für die Erstellung neuer Turniere"""
+    """Tab für die Erstellung neuer Turniere mit verbessertem Design"""
     st.header("🏆 Neues Turnier erstellen")
+    st.markdown("Erstellen Sie in wenigen Schritten Ihr perfektes Tennis-Turnier")
+    st.markdown("---")
     
-    with st.form("new_tournament_form"):
-        col1, col2 = st.columns(2)
+    # Schritt 1: Team-Konfiguration in einer schönen Box
+    with st.container():
+        st.markdown("### 📋 Schritt 1: Teams konfigurieren")
+        
+        col1, col2 = st.columns([1, 2])
         
         with col1:
-            tournament_name = st.text_input(
-                "Turnier Name",
-                value=f"Tennis Turnier {datetime.now().strftime('%d.%m.%Y')}"
-            )
-            
-            num_courts = st.number_input(
-                "Anzahl der Tennisplätze",
-                min_value=1,
-                max_value=20,
-                value=4,
-                step=1
-            )
-            
-            players_per_team = st.number_input(
-                "Spieler pro Team",
-                min_value=2,
-                max_value=8,
-                value=4,
-                step=1,
-                help="Jedes Team kann gleichzeitig auf max. 2 Plätzen spielen (bei 4 Spielern)"
+            st.markdown("#### Eingabemethode wählen")
+            input_method = st.radio(
+                "",
+                ["🔢 Anzahl Teams", "✏️ Team-Namen eingeben"],
+                help="Wählen Sie, wie Sie Ihre Teams eingeben möchten"
             )
         
         with col2:
-            input_method = st.radio(
-                "Team-Eingabemethode:",
-                ["Anzahl Teams", "Team-Namen eingeben"]
-            )
-            
-            if input_method == "Anzahl Teams":
-                num_teams = st.number_input(
-                    "Anzahl der Teams",
+            if input_method == "🔢 Anzahl Teams":
+                st.markdown("#### Anzahl Teams")
+                num_teams = st.slider(
+                    "Wie viele Teams nehmen teil?",
                     min_value=2,
-                    max_value=50,
+                    max_value=20,
                     value=8,
-                    step=1
+                    step=1,
+                    help="Teams werden automatisch als 'Team 1', 'Team 2', etc. benannt"
                 )
                 teams = [f"Team {i+1}" for i in range(num_teams)]
+                
+                # Vorschau in einer schönen Box
+                with st.expander(f"👀 Vorschau: {len(teams)} Teams", expanded=True):
+                    # Teams in Spalten anzeigen
+                    team_cols = st.columns(min(4, len(teams)))
+                    for i, team in enumerate(teams[:12]):  # Max 12 Teams in Vorschau
+                        with team_cols[i % len(team_cols)]:
+                            st.markdown(f"**{team}**")
+                    if len(teams) > 12:
+                        st.markdown(f"... und {len(teams) - 12} weitere Teams")
+            
             else:
+                st.markdown("#### Team-Namen eingeben")
                 team_names = st.text_area(
-                    "Team-Namen (eine pro Zeile):",
-                    value="Team 1\nTeam 2\nTeam 3\nTeam 4\nTeam 5\nTeam 6\nTeam 7\nTeam 8",
-                    height=150
+                    "Geben Sie jeden Team-Namen in eine neue Zeile ein:",
+                    value="FC Barcelona\nReal Madrid\nBayern München\nPSG\nManchester City\nLiverpool\nChelsea\nArsenal",
+                    height=180,
+                    help="Ein Team-Name pro Zeile. Leere Zeilen werden ignoriert."
                 )
                 teams = [name.strip() for name in team_names.split('\n') if name.strip()]
+                
+                # Live-Vorschau der erkannten Teams
+                if teams:
+                    with st.expander(f"✅ {len(teams)} Teams erkannt", expanded=True):
+                        if len(teams) >= 2:
+                            st.success(f"Bereit für Turnier mit {len(teams)} Teams!")
+                        else:
+                            st.warning("Mindestens 2 Teams erforderlich")
+                        
+                        # Teams in einem schönen Grid anzeigen
+                        team_cols = st.columns(min(3, len(teams)))
+                        for i, team in enumerate(teams):
+                            with team_cols[i % len(team_cols)]:
+                                st.markdown(f"🏆 **{team}**")
+                else:
+                    st.warning("Noch keine Teams eingegeben")
+    
+    st.markdown("---")
+    
+    # Schritt 2: Turnier-Details in einem schönen Formular
+    with st.container():
+        st.markdown("### ⚙️ Schritt 2: Turnier-Details")
         
-        mode = st.selectbox(
-            "Turnier-Modus:",
-            ["Zeitbasierte Planung", "Vollständiges Turnier (Round-Robin)", "Einzelne Runde"]
-        )
-        
-        # Zeitbasierte Einstellungen
-        if mode == "Zeitbasierte Planung":
-            time_input_method = st.radio(
-                "Zeit-Eingabe:",
-                ["Stunden und Minuten", "Nur Minuten"]
-            )
+        with st.form("tournament_config_form", clear_on_submit=False):
+            # Grundeinstellungen in zwei Spalten
+            col1, col2 = st.columns(2)
             
-            if time_input_method == "Stunden und Minuten":
-                hours = st.number_input("Stunden", min_value=0, max_value=12, value=2, step=1)
-                minutes = st.number_input("Zusätzliche Minuten", min_value=0, max_value=59, value=0, step=5)
-                total_minutes = hours * 60 + minutes
-            else:
-                total_minutes = st.number_input(
-                    "Gesamtdauer (Minuten)",
-                    min_value=20,
-                    max_value=720,
-                    value=120,
-                    step=20,
-                    help="Mindestens 20 Minuten für eine Runde"
+            with col1:
+                st.markdown("#### 🏟️ Basis-Konfiguration")
+                tournament_name = st.text_input(
+                    "Turnier Name",
+                    value=f"Tennis Turnier {datetime.now().strftime('%d.%m.%Y')}",
+                    help="Geben Sie Ihrem Turnier einen aussagekräftigen Namen"
+                )
+                
+                num_courts = st.select_slider(
+                    "Anzahl Tennisplätze",
+                    options=list(range(1, 11)),
+                    value=4,
+                    help="Anzahl der verfügbaren Plätze für gleichzeitige Spiele"
+                )
+                
+                players_per_team = st.select_slider(
+                    "Spieler pro Team",
+                    options=[2, 3, 4, 5, 6, 7, 8],
+                    value=4,
+                    help="Jedes Team kann auf max. 2 Plätzen gleichzeitig spielen"
+                )
+            
+            with col2:
+                st.markdown("#### 🎯 Spielmodus")
+                mode = st.selectbox(
+                    "Wählen Sie den Turnier-Modus:",
+                    ["⏱️ Zeitbasierte Planung", "🔄 Vollständiges Turnier (Round-Robin)", "🎮 Einzelne Runde"],
+                    help="Verschiedene Modi für unterschiedliche Turnier-Arten"
+                )
+                
+                # Zeitbasierte Einstellungen in einer schönen Box
+                if mode == "⏱️ Zeitbasierte Planung":
+                    with st.container():
+                        st.markdown("##### ⏰ Zeit-Konfiguration")
+                        time_input_method = st.radio(
+                            "Zeit-Eingabe:",
+                            ["🕐 Stunden und Minuten", "📊 Nur Minuten"],
+                            horizontal=True
+                        )
+                        
+                        if time_input_method == "🕐 Stunden und Minuten":
+                            time_col1, time_col2 = st.columns(2)
+                            with time_col1:
+                                hours = st.number_input("Stunden", min_value=0, max_value=12, value=2, step=1)
+                            with time_col2:
+                                minutes = st.number_input("Zusätzliche Minuten", min_value=0, max_value=59, value=0, step=15)
+                            total_minutes = hours * 60 + minutes
+                        else:
+                            total_minutes = st.slider(
+                                "Gesamtdauer (Minuten)",
+                                min_value=20,
+                                max_value=480,
+                                value=120,
+                                step=20,
+                                help="Mindestens 20 Minuten für eine Runde"
+                            )
+                        
+                        # Zeitvorschau
+                        estimated_rounds = total_minutes // 20
+                        st.info(f"📊 Geschätzt: ~{estimated_rounds} Runden à 20 Minuten")
+                
+                elif mode == "🔄 Vollständiges Turnier (Round-Robin)":
+                    if teams:
+                        total_possible_matches = len(teams) * (len(teams) - 1) // 2
+                        estimated_rounds = math.ceil(total_possible_matches / num_courts)
+                        estimated_time = estimated_rounds * 20
+                        
+                        st.info(f"📊 {total_possible_matches} Matches in ~{estimated_rounds} Runden")
+                        st.info(f"⏰ Geschätzte Dauer: ~{estimated_time // 60}h {estimated_time % 60}min")
+                
+                else:  # Einzelne Runde
+                    max_matches_single = min(num_courts, len(teams) // 2)
+                    st.info(f"🎮 {max_matches_single} Matches in einer Runde")
+                    st.info(f"⏰ Dauer: ~20 Minuten")
+            
+            # Erweiterte Optionen (optional)
+            with st.expander("🔧 Erweiterte Optionen", expanded=False):
+                col_opt1, col_opt2 = st.columns(2)
+                with col_opt1:
+                    enable_overtime = st.checkbox("⏰ Verlängerung bei Unentschieden", value=False)
+                    fair_play_mode = st.checkbox("⚖️ Fairplay-Modus (ausgewogene Verteilung)", value=True)
+                
+                with col_opt2:
+                    auto_scheduling = st.checkbox("🤖 Automatische Optimierung", value=True)
+                    notification_mode = st.checkbox("🔔 Benachrichtigungen aktivieren", value=False)
+            
+            st.markdown("---")
+            
+            # Submit Button mit Stil
+            col_submit1, col_submit2, col_submit3 = st.columns([1, 2, 1])
+            with col_submit2:
+                submitted = st.form_submit_button(
+                    "🚀 Turnier erstellen und starten!",
+                    type="primary",
+                    use_container_width=True,
+                    help="Klicken Sie hier, um Ihr Turnier zu erstellen"
                 )
         
-        submitted = st.form_submit_button("🚀 Turnier erstellen", type="primary")
-        
-        if submitted and len(teams) >= 2:
-            # Erstelle Turnier in der Datenbank
-            tournament_id = st.session_state.db.create_tournament(
-                tournament_name, teams, num_courts, players_per_team, mode
-            )
+        # Validierung und Turnier-Erstellung
+        if submitted:
+            # Validierung
+            validation_errors = []
             
-            # Erstelle Spielplan
-            scheduler = TennisScheduler(num_courts, teams, players_per_team, st.session_state.db)
+            if len(teams) < 2:
+                validation_errors.append("❌ Mindestens 2 Teams erforderlich")
             
-            if mode == "Zeitbasierte Planung":
-                schedule, stats = scheduler.create_time_based_schedule(total_minutes)
-                if "error" not in stats:
-                    st.session_state.db.save_matches(tournament_id, schedule)
-                    st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+            if not tournament_name.strip():
+                validation_errors.append("❌ Turnier-Name darf nicht leer sein")
+            
+            if mode == "⏱️ Zeitbasierte Planung" and total_minutes < 20:
+                validation_errors.append("❌ Mindestens 20 Minuten für zeitbasierte Planung erforderlich")
+            
+            if validation_errors:
+                for error in validation_errors:
+                    st.error(error)
+            else:
+                # Erfolgreiche Validierung - Turnier erstellen
+                with st.spinner("🔄 Turnier wird erstellt..."):
+                    time.sleep(1)  # Kurze Verzögerung für bessere UX
                     
-                    # Zeige Match-Verteilung direkt nach Erstellung
-                    st.subheader("⚖️ Geplante Match-Verteilung")
-                    show_match_distribution_preview(teams, schedule, "time_based")
+                    tournament_id = st.session_state.db.create_tournament(
+                        tournament_name.strip(), teams, num_courts, players_per_team, mode
+                    )
                     
-                    st.balloons()
-                else:
-                    st.error(f"⚠️ {stats['error']}")
-            
-            elif mode == "Vollständiges Turnier (Round-Robin)":
-                schedule = scheduler.create_round_robin_schedule()
-                st.session_state.db.save_matches(tournament_id, schedule)
-                st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
-                
-                # Zeige Match-Verteilung direkt nach Erstellung
-                st.subheader("⚖️ Geplante Match-Verteilung")
-                show_match_distribution_preview(teams, schedule, "round_robin")
-                
-                st.balloons()
-            
-            else:  # Einzelne Runde
-                matches = scheduler.create_single_round_distribution()
-                schedule = [matches]
-                st.session_state.db.save_matches(tournament_id, schedule)
-                st.success(f"✅ Runde erfolgreich erstellt!")
-                
-                # Zeige Match-Verteilung direkt nach Erstellung
-                st.subheader("⚖️ Match-Verteilung dieser Runde")
-                show_match_distribution_preview(teams, schedule, "single_round")
-        
-        elif submitted:
-            st.error("⚠️ Mindestens 2 Teams erforderlich!")
+                    scheduler = TennisScheduler(num_courts, teams, players_per_team, st.session_state.db)
+                    
+                    if mode == "⏱️ Zeitbasierte Planung":
+                        schedule, stats = scheduler.create_time_based_schedule(total_minutes)
+                        if "error" not in stats:
+                            st.session_state.db.save_matches(tournament_id, schedule)
+                            
+                            # Erfolgs-Animation
+                            st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                            st.balloons()
+                            
+                            # Schöne Ergebnis-Übersicht
+                            with st.container():
+                                st.markdown("### 🎉 Turnier erfolgreich erstellt!")
+                                
+                                # Zusammenfassung in Metriken
+                                summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                                with summary_col1:
+                                    st.metric("Teams", len(teams))
+                                with summary_col2:
+                                    st.metric("Runden", len(schedule))
+                                with summary_col3:
+                                    st.metric("Matches", sum(len(r['matches']) if isinstance(r, dict) else len(r) for r in schedule))
+                                with summary_col4:
+                                    st.metric("Plätze", num_courts)
+                                
+                                # Match-Verteilung
+                                st.subheader("⚖️ Geplante Match-Verteilung")
+                                show_match_distribution_preview(teams, schedule, "time_based")
+                        else:
+                            st.error(f"⚠️ Fehler bei der Turnier-Erstellung: {stats['error']}")
+                    
+                    elif mode == "🔄 Vollständiges Turnier (Round-Robin)":
+                        schedule = scheduler.create_round_robin_schedule()
+                        st.session_state.db.save_matches(tournament_id, schedule)
+                        
+                        st.success(f"✅ Turnier '{tournament_name}' erfolgreich erstellt!")
+                        st.balloons()
+                        
+                        # Zusammenfassung
+                        with st.container():
+                            st.markdown("### 🎉 Round-Robin Turnier erstellt!")
+                            
+                            summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                            with summary_col1:
+                                st.metric("Teams", len(teams))
+                            with summary_col2:
+                                st.metric("Runden", len(schedule))
+                            with summary_col3:
+                                st.metric("Matches", sum(len(round_matches) for round_matches in schedule))
+                            with summary_col4:
+                                st.metric("Plätze", num_courts)
+                            
+                            st.subheader("⚖️ Geplante Match-Verteilung")
+                            show_match_distribution_preview(teams, schedule, "round_robin")
+                    
+                    else:  # Einzelne Runde
+                        matches = scheduler.create_single_round_distribution()
+                        schedule = [matches]
+                        st.session_state.db.save_matches(tournament_id, schedule)
+                        
+                        st.success(f"✅ Runde erfolgreich erstellt!")
+                        
+                        # Zusammenfassung
+                        with st.container():
+                            st.markdown("### 🎮 Einzelrunde erstellt!")
+                            
+                            summary_col1, summary_col2, summary_col3 = st.columns(3)
+                            with summary_col1:
+                                st.metric("Teams", len(teams))
+                            with summary_col2:
+                                st.metric("Matches", len(matches))
+                            with summary_col3:
+                                st.metric("Plätze genutzt", len(matches))
+                            
+                            st.subheader("🎯 Match-Verteilung dieser Runde")
+                            show_match_distribution_preview(teams, schedule, "single_round")
 
 def manage_tournaments():
     """Tab für die Verwaltung bestehender Turniere"""
