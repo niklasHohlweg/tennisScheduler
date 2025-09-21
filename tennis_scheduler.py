@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 import time
 import uuid
+import hashlib
 from st_supabase_connection import SupabaseConnection
 
 # -------------- SUPABASE DATABASE CLASS --------------
@@ -32,7 +33,7 @@ class TennisDatabase:
         except Exception as e:
             # Tables likely don't exist, show setup instructions
             st.error("Database tables not found. Please set up your database first.")
-            with st.expander("🔧 Database Setup Instructions", expanded=True):
+            with st.expander("Database Setup Instructions", expanded=True):
                 st.markdown("""
                 **Please run this SQL in your Supabase SQL Editor to create the required tables:**
                 
@@ -294,8 +295,8 @@ def init_user_session():
         st.session_state.user_email = None
 
 def require_login():
-    """Simple login system"""
-    st.title("🎾 Tennis Turnier System")
+    """Simple login system with persistent user IDs"""
+    st.title("Tennis Turnier System")
     
     if st.session_state.user_id is None:
         st.info("Bitte geben Sie Ihre Daten ein, um fortzufahren.")
@@ -310,16 +311,19 @@ def require_login():
             submitted = st.form_submit_button("Anmelden", type="primary")
             
             if submitted and name.strip() and email.strip():
-                st.session_state.user_id = str(uuid.uuid4())
+                # Create consistent user ID based on email
+                user_id = hashlib.md5(email.strip().lower().encode()).hexdigest()
+                
+                st.session_state.user_id = user_id
                 st.session_state.user_name = name.strip()
-                st.session_state.user_email = email.strip()
+                st.session_state.user_email = email.strip().lower()
                 st.rerun()
             elif submitted:
                 st.error("Bitte füllen Sie beide Felder aus.")
         
         st.stop()
 
-# -------------- SCHEDULER (unchanged) --------------
+# -------------- TENNIS SCHEDULER --------------
 class TennisScheduler:
     def __init__(self, num_courts, teams, players_per_team=4):
         self.num_courts = num_courts
@@ -403,6 +407,7 @@ class TennisScheduler:
         schedule = []
         remaining = all_matches.copy()
         random.shuffle(remaining)
+        
         for round_num in range(1, rounds_needed + 1):
             round_matches = self.create_optimal_round(remaining, round_num)
             schedule.append(round_matches)
@@ -434,7 +439,7 @@ class TennisScheduler:
             matches.append((t1, t2))
         return matches
 
-# -------------- VIEW HELPERS (same as before) --------------
+# -------------- VIEW HELPER FUNCTIONS --------------
 def show_match_distribution_preview(teams, schedule, mode_type):
     team_match_count = Counter()
     for round_data in schedule:
@@ -451,29 +456,163 @@ def show_match_distribution_preview(teams, schedule, mode_type):
     with col1:
         st.metric("Gesamte Matches", sum(team_match_count.values()) // 2)
     with col2:
-        st.metric("Ø Matches/Team", f"{sum(team_match_count.values()) / len(teams):.1f}")
+        st.metric("Durchschnitt Matches/Team", f"{sum(team_match_count.values()) / len(teams):.1f}")
     with col3:
         st.metric("Max-Min Differenz", difference)
     with col4:
         if difference <= 1:
-            st.success("✅ Sehr fair")
+            st.success("Sehr fair")
         elif difference <= 2:
-            st.warning("⚖️ Akzeptabel")
+            st.warning("Akzeptabel")
         else:
-            st.error("⚠️ Ungleich")
+            st.error("Ungleich")
 
-# -------------- MAIN APP FUNCTIONS (adapted for Supabase) --------------
-def create_new_tournament(user_id, user_email):
-    st.header("🏆 Neues Turnier erstellen")
+def show_team_match_overview(tournament_id, matches, teams):
+    st.subheader("Match-Verteilung pro Team")
+    team_match_count = Counter()
+    team_played_count = Counter()
     
-    # Tournament creation form (same as before)
+    for m in matches:
+        team_match_count[m['team1']] += 1
+        team_match_count[m['team2']] += 1
+        if m['winner']:
+            team_played_count[m['team1']] += 1
+            team_played_count[m['team2']] += 1
+
+    max_matches = max(team_match_count.values()) if team_match_count else 0
+    min_matches = min(team_match_count.values()) if team_match_count else 0
+    difference = max_matches - min_matches
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: 
+        st.metric("Max Matches/Team", max_matches)
+    with col2: 
+        st.metric("Min Matches/Team", min_matches)
+    with col3: 
+        st.metric("Differenz", difference)
+    with col4:
+        if difference <= 1: 
+            st.success("Faire Verteilung")
+        elif difference <= 2: 
+            st.warning("Akzeptabel")
+        else: 
+            st.error("Ungleiche Verteilung")
+
+def show_detailed_team_overview(tournament_id, matches, teams):
+    st.subheader("Detaillierte Team-Übersicht")
+    team_stats = {t: {'total_matches':0,'played_matches':0,'pending_matches':0,
+                      'opponents':[],'upcoming_opponents':[],'next_match_round':None}
+                  for t in teams}
+    
+    for m in matches:
+        t1, t2 = m['team1'], m['team2']
+        for t, opp in [(t1,t2),(t2,t1)]:
+            team_stats[t]['total_matches'] += 1
+            team_stats[t]['opponents'].append(opp)
+            if m['winner']:
+                team_stats[t]['played_matches'] += 1
+            else:
+                team_stats[t]['pending_matches'] += 1
+                team_stats[t]['upcoming_opponents'].append(opp)
+                if team_stats[t]['next_match_round'] is None:
+                    team_stats[t]['next_match_round'] = m['round_number']
+
+    overview = []
+    for team in sorted(teams):
+        s = team_stats[team]
+        next_opps = ", ".join(s['upcoming_opponents'][:3])
+        if len(s['upcoming_opponents']) > 3:
+            next_opps += f" (+{len(s['upcoming_opponents'])-3} weitere)"
+        overview.append({
+            "Team": team,
+            "Gesamt Matches": s['total_matches'],
+            "Gespielt": s['played_matches'],
+            "Ausstehend": s['pending_matches'],
+            "Fortschritt %": f"{(s['played_matches']/s['total_matches']*100):.0f}%" if s['total_matches']>0 else "0%",
+            "Nächste Runde": s['next_match_round'] if s['next_match_round'] else "Fertig",
+            "Nächste Gegner": next_opps if next_opps else "Keine ausstehenden Matches"
+        })
+    
+    df_overview = pd.DataFrame(overview)
+    st.dataframe(df_overview, hide_index=True, use_container_width=True)
+
+# -------------- MAIN APPLICATION FUNCTIONS --------------
+def show_user_dashboard(user_id):
+    """Show user dashboard with tournament overview"""
+    st.header("Mein Dashboard")
+    db = TennisDatabase()
+    tournaments = db.get_tournaments(user_id)
+    
+    if not tournaments:
+        st.info("Sie haben noch keine Turniere erstellt. Erstellen Sie Ihr erstes Turnier!")
+        return
+
+    # Overview metrics
+    total_tournaments = len(tournaments)
+    total_matches = sum(len(db.get_matches(t['id'], user_id)) for t in tournaments)
+    completed_tournaments = 0
+    active_tournaments = 0
+    
+    for t in tournaments:
+        matches = db.get_matches(t['id'], user_id)
+        if matches:
+            played_matches = len([m for m in matches if m['winner']])
+            if played_matches == len(matches):
+                completed_tournaments += 1
+            elif played_matches > 0:
+                active_tournaments += 1
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Gesamt Turniere", total_tournaments)
+    with col2:
+        st.metric("Aktive Turniere", active_tournaments)
+    with col3:
+        st.metric("Abgeschlossen", completed_tournaments)
+    with col4:
+        st.metric("Gesamt Matches", total_matches)
+
+    # Recent tournaments
+    st.subheader("Ihre Turniere")
+    for t in tournaments[:5]:  # Show last 5 tournaments
+        with st.expander(f"{t['name']} ({t['created_at'][:10]})", expanded=False):
+            matches = db.get_matches(t['id'], user_id)
+            played_matches = len([m for m in matches if m['winner']]) if matches else 0
+            total_matches = len(matches) if matches else 0
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Teams", len(t['teams']))
+            with col2:
+                st.metric("Modus", t['mode'].split()[0])
+            with col3:
+                st.metric("Matches", f"{played_matches}/{total_matches}")
+            with col4:
+                progress = (played_matches / total_matches * 100) if total_matches > 0 else 0
+                if progress == 100:
+                    st.success("Abgeschlossen")
+                elif progress > 0:
+                    st.info(f"{progress:.0f}% gespielt")
+                else:
+                    st.warning("Nicht gestartet")
+            
+            # Show current ranking leader if tournament has started
+            if played_matches > 0:
+                ranking = db.get_ranking(t['id'], user_id)
+                if ranking and ranking[0]['matches_played'] > 0:
+                    st.markdown(f"**Führend:** {ranking[0]['team']} ({ranking[0]['ranking_points']} Punkte)")
+
+def create_new_tournament(user_id, user_email):
+    st.header("Neues Turnier erstellen")
+    
+    # Teams configuration
     with st.container():
-        st.markdown("### 📋 Schritt 1: Teams konfigurieren")
+        st.markdown("### Schritt 1: Teams konfigurieren")
         col1, col2 = st.columns([1, 2])
         with col1:
-            input_method = st.radio("", ["🔢 Anzahl Teams", "✏️ Team-Namen eingeben"])
+            input_method = st.radio("", ["Anzahl Teams", "Team-Namen eingeben"])
         with col2:
-            if input_method == "🔢 Anzahl Teams":
+            if input_method == "Anzahl Teams":
                 num_teams = st.slider("Wie viele Teams nehmen teil?", 2, 20, 8, 1)
                 teams = [f"Team {i+1}" for i in range(num_teams)]
             else:
@@ -485,7 +624,7 @@ def create_new_tournament(user_id, user_email):
     st.markdown("---")
 
     with st.container():
-        st.markdown("### ⚙️ Schritt 2: Turnier-Details")
+        st.markdown("### Schritt 2: Turnier-Details")
         with st.form("tournament_config_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
             with col1:
@@ -494,10 +633,10 @@ def create_new_tournament(user_id, user_email):
                 num_courts = st.select_slider("Anzahl Tennisplätze", options=list(range(1, 11)), value=4)
                 players_per_team = st.select_slider("Spieler pro Team", options=[2,3,4,5,6,7,8], value=4)
             with col2:
-                mode = st.selectbox("Modus", ["⏱️ Zeitbasierte Planung", "🔄 Vollständiges Turnier (Round-Robin)", "🎮 Einzelne Runde"])
-                if mode == "⏱️ Zeitbasierte Planung":
-                    time_mode = st.radio("Zeit-Eingabe:", ["🕐 Stunden/Minuten", "📊 Minuten"], horizontal=True)
-                    if time_mode == "🕐 Stunden/Minuten":
+                mode = st.selectbox("Modus", ["Zeitbasierte Planung", "Vollständiges Turnier (Round-Robin)", "Einzelne Runde"])
+                if mode == "Zeitbasierte Planung":
+                    time_mode = st.radio("Zeit-Eingabe:", ["Stunden/Minuten", "Minuten"], horizontal=True)
+                    if time_mode == "Stunden/Minuten":
                         c1, c2 = st.columns(2)
                         with c1: hours = st.number_input("Stunden", 0, 12, 2, 1)
                         with c2: minutes = st.number_input("Minuten", 0, 59, 0, 15)
@@ -505,16 +644,14 @@ def create_new_tournament(user_id, user_email):
                     else:
                         total_minutes = st.slider("Gesamtdauer (Minuten)", 20, 480, 120, 20)
 
-            col_submit1, col_submit2, col_submit3 = st.columns([1,2,1])
-            with col_submit2:
-                submitted = st.form_submit_button("🚀 Turnier erstellen und starten!", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Turnier erstellen und starten!", type="primary", use_container_width=True)
 
         if submitted:
             if len(teams) < 2 or not tournament_name.strip():
-                st.error("❌ Mindestens 2 Teams und ein Turnier-Name sind erforderlich")
+                st.error("Mindestens 2 Teams und ein Turnier-Name sind erforderlich")
                 return
 
-            with st.spinner("🔄 Turnier wird erstellt..."):
+            with st.spinner("Turnier wird erstellt..."):
                 db = TennisDatabase()
                 tid = db.create_tournament(
                     tournament_name.strip(), teams, num_courts, players_per_team, mode, owner_id=user_id, owner_email=user_email
@@ -523,53 +660,92 @@ def create_new_tournament(user_id, user_email):
                 if tid:
                     scheduler = TennisScheduler(num_courts, teams, players_per_team)
 
-                    if mode == "⏱️ Zeitbasierte Planung":
+                    if mode == "Zeitbasierte Planung":
                         schedule, stats = scheduler.create_time_based_schedule(total_minutes)
                         if "error" not in stats:
                             db.save_matches(tid, schedule)
-                            st.success(f"✅ Turnier '{tournament_name}' erstellt!")
+                            st.success(f"Turnier '{tournament_name}' erstellt!")
                             st.balloons()
-                    elif mode == "🔄 Vollständiges Turnier (Round-Robin)":
+                            show_match_distribution_preview(teams, schedule, "time_based")
+                    elif mode == "Vollständiges Turnier (Round-Robin)":
                         schedule = scheduler.create_round_robin_schedule()
                         db.save_matches(tid, schedule)
-                        st.success(f"✅ Turnier '{tournament_name}' erstellt!")
+                        st.success(f"Turnier '{tournament_name}' erstellt!")
                         st.balloons()
+                        show_match_distribution_preview(teams, schedule, "round_robin")
                     else:
                         matches = scheduler.create_single_round_distribution()
                         schedule = [matches]
                         db.save_matches(tid, schedule)
-                        st.success("✅ Einzelrunde erstellt!")
+                        st.success("Einzelrunde erstellt!")
 
 def manage_tournaments(user_id):
-    st.header("📋 Turnier Verwaltung")
+    st.header("Turnier Verwaltung")
     db = TennisDatabase()
     tournaments = db.get_tournaments(user_id)
     
     if not tournaments:
-        st.info("📋 Noch keine Turniere erstellt. Gehe zu 'Neues Turnier'.")
+        st.info("Noch keine Turniere erstellt. Gehe zu 'Neues Turnier'.")
         return
 
-    tournament_options = {f"{t['name']} ({t['created_at'][:10]})": t['id'] for t in tournaments}
-    selected_name = st.selectbox("Turnier auswählen:", list(tournament_options.keys()))
+    # Show user's tournament summary
+    col1, col2 = st.columns([2, 1])
+    with col2:
+        st.metric("Ihre Turniere", len(tournaments))
+        active_count = 0
+        for t in tournaments:
+            matches = db.get_matches(t['id'], user_id)
+            if matches:
+                played = len([m for m in matches if m['winner']])
+                if 0 < played < len(matches):
+                    active_count += 1
+        st.metric("Aktive Turniere", active_count)
+
+    with col1:
+        tournament_options = {f"{t['name']} ({t['created_at'][:10]})": t['id'] for t in tournaments}
+        selected_name = st.selectbox("Turnier auswählen:", list(tournament_options.keys()))
     
     if selected_name:
         tournament_id = tournament_options[selected_name]
         tournament = next(t for t in tournaments if t['id'] == tournament_id)
         
-        st.subheader(f"🏆 {tournament['name']}")
+        st.subheader(f"{tournament['name']}")
+        
+        # Tournament info
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: st.metric("Teams", len(tournament['teams']))
+        with col2: st.metric("Plätze", tournament['num_courts'])
+        with col3: st.metric("Spieler/Team", tournament['players_per_team'])
+        with col4: st.metric("Modus", tournament['mode'])
+
         matches = db.get_matches(tournament_id, user_id)
         
         if matches:
-            tab1, tab2, tab3 = st.tabs(["🎮 Ergebnisse eintragen", "📅 Spielplan", "🏅 Aktuelles Ranking"])
+            # Progress indicator
+            played_matches = len([m for m in matches if m['winner']])
+            total_matches = len(matches)
+            progress = played_matches / total_matches if total_matches > 0 else 0
+            
+            st.progress(progress)
+            st.caption(f"Fortschritt: {played_matches}/{total_matches} Matches gespielt ({progress*100:.0f}%)")
+            
+            show_team_match_overview(tournament_id, matches, tournament['teams'])
+            st.markdown("---")
+            
+            tab1, tab2, tab3, tab4 = st.tabs(["Ergebnisse eintragen", "Spielplan", "Aktuelles Ranking", "Team-Übersicht"])
             with tab1: 
                 enter_match_results(tournament_id, matches, user_id)
             with tab2: 
                 show_match_schedule(matches, tournament)
             with tab3: 
                 show_tournament_ranking(tournament_id, user_id)
+            with tab4: 
+                show_detailed_team_overview(tournament_id, matches, tournament['teams'])
+        else:
+            st.info("Keine Matches gefunden.")
 
 def enter_match_results(tournament_id, matches, user_id):
-    st.subheader("🎮 Match-Ergebnisse eintragen")
+    st.subheader("Match-Ergebnisse eintragen")
     db = TennisDatabase()
     
     unplayed = [m for m in matches if not m['winner']]
@@ -582,7 +758,7 @@ def enter_match_results(tournament_id, matches, user_id):
 
     with col1:
         if not unplayed:
-            st.success("🎉 Alle Matches wurden gespielt!")
+            st.success("Alle Matches wurden gespielt!")
             return
 
         for m in unplayed[:5]:  # Show first 5 unplayed matches
@@ -597,23 +773,23 @@ def enter_match_results(tournament_id, matches, user_id):
             with c3:
                 b1, b2 = st.columns(2)
                 with b1:
-                    if st.button(f"🏆 {m['team1'][:8]}", key=f"w1_{m['id']}"):
+                    if st.button(f"{m['team1'][:8]} gewinnt", key=f"w1_{m['id']}"):
                         db.update_match_result(m['id'], m['team1'], s1, s2)
-                        st.success(f"✅ {m['team1']} gewinnt!")
+                        st.success(f"{m['team1']} gewinnt!")
                         st.rerun()
                 with b2:
-                    if st.button(f"🏆 {m['team2'][:8]}", key=f"w2_{m['id']}"):
+                    if st.button(f"{m['team2'][:8]} gewinnt", key=f"w2_{m['id']}"):
                         db.update_match_result(m['id'], m['team2'], s1, s2)
-                        st.success(f"✅ {m['team2']} gewinnt!")
+                        st.success(f"{m['team2']} gewinnt!")
                         st.rerun()
             st.markdown("---")
 
 def show_match_schedule(matches, tournament):
-    st.subheader("📅 Spielplan")
+    st.subheader("Spielplan")
     if matches:
         df_data = []
         for m in matches:
-            status = "✅" if m['winner'] else "⏳"
+            status = "Gespielt" if m['winner'] else "Ausstehend"
             result = ""
             if m['winner']:
                 result = f"{m['team1_score']}:{m['team2_score']} (Sieger: {m['winner']})"
@@ -630,21 +806,21 @@ def show_match_schedule(matches, tournament):
         st.dataframe(pd.DataFrame(df_data), hide_index=True, use_container_width=True)
 
 def show_tournament_ranking(tournament_id, user_id):
-    st.subheader("🏅 Aktuelles Ranking")
+    st.subheader("Aktuelles Ranking")
     db = TennisDatabase()
     ranking = db.get_ranking(tournament_id, user_id)
     
     if not ranking:
-        st.info("🎾 Noch keine Spiele gespielt.")
+        st.info("Noch keine Spiele gespielt.")
         return
 
     # Show top 3
-    if len(ranking) >= 1:
+    if len(ranking) >= 1 and ranking[0]['matches_played'] > 0:
         col1, col2, col3 = st.columns(3)
         with col2:
-            st.markdown("### 🥇")
+            st.markdown("### 1. Platz")
             st.markdown(f"**{ranking[0]['team']}**")
-            st.markdown(f"🏆 {ranking[0]['ranking_points']} Punkte")
+            st.markdown(f"{ranking[0]['ranking_points']} Punkte")
 
     # Show full ranking table
     table_data = []
@@ -662,9 +838,81 @@ def show_tournament_ranking(tournament_id, user_id):
     
     st.dataframe(pd.DataFrame(table_data), hide_index=True, use_container_width=True)
 
-# -------------- MAIN APP --------------
+def show_rankings(user_id):
+    st.header("Turnier-Rankings")
+    db = TennisDatabase()
+    tournaments = db.get_tournaments(user_id)
+    
+    if not tournaments:
+        st.info("Noch keine Turniere vorhanden.")
+        return
+
+    for t in tournaments:
+        with st.expander(f"{t['name']} ({t['created_at'][:10]})", expanded=False):
+            ranking = db.get_ranking(t['id'], user_id)
+            if ranking and any(x['matches_played'] > 0 for x in ranking):
+                played_teams = [x for x in ranking if x['matches_played'] > 0]
+                if len(played_teams) >= 1:
+                    st.markdown(f"**Champion:** {played_teams[0]['team']} ({played_teams[0]['ranking_points']} Punkte)")
+                
+                total_matches = sum(x['matches_played'] for x in ranking) // 2
+                matches_in_db = len(db.get_matches(t['id'], user_id))
+                col1, col2, col3 = st.columns(3)
+                with col1: st.metric("Gespielte Matches", total_matches)
+                with col2: st.metric("Teams", len(t['teams']))
+                with col3:
+                    completion = (total_matches / matches_in_db * 100) if matches_in_db > 0 else 0
+                    st.metric("Fortschritt", f"{completion:.0f}%")
+            else:
+                st.info("Turnier noch nicht gestartet.")
+
+def show_statistics(user_id):
+    st.header("Turnier-Statistiken")
+    db = TennisDatabase()
+    tournaments = db.get_tournaments(user_id)
+    
+    if not tournaments:
+        st.info("Noch keine Turniere vorhanden.")
+        return
+
+    st.subheader("Gesamt-Übersicht")
+    total_tournaments = len(tournaments)
+    total_teams = sum(len(t['teams']) for t in tournaments)
+    total_matches_all = sum(len(db.get_matches(t['id'], user_id)) for t in tournaments)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1: st.metric("Turniere", total_tournaments)
+    with col2: st.metric("Teams gesamt", total_teams)
+    with col3: st.metric("Matches gesamt", total_matches_all)
+    with col4:
+        avg_teams = total_teams / total_tournaments if total_tournaments > 0 else 0
+        st.metric("Durchschnitt Teams/Turnier", f"{avg_teams:.1f}")
+
+    st.subheader("Detaillierte Statistiken")
+    rows = []
+    for t in tournaments:
+        matches = db.get_matches(t['id'], user_id)
+        played = len([m for m in matches if m['winner']])
+        ranking = db.get_ranking(t['id'], user_id)
+        champion = "TBD"
+        if ranking and ranking[0]['matches_played'] > 0:
+            champion = ranking[0]['team']
+        rows.append({
+            "Turnier": t['name'],
+            "Datum": t['created_at'][:10],
+            "Modus": t['mode'],
+            "Teams": len(t['teams']),
+            "Plätze": t['num_courts'],
+            "Matches geplant": len(matches),
+            "Matches gespielt": played,
+            "Fortschritt %": f"{(played/len(matches)*100):.0f}%" if matches else "0%",
+            "Champion": champion
+        })
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+# -------------- MAIN APPLICATION --------------
 def main():
-    st.set_page_config(page_title="🎾 Tennis Turnier System", page_icon="🎾", layout="wide")
+    st.set_page_config(page_title="Tennis Turnier System", page_icon="🎾", layout="wide")
 
     # Initialize user session and database
     init_user_session()
@@ -680,7 +928,7 @@ def main():
     
     # Logout button
     with st.sidebar:
-        if st.button("🚪 Abmelden", type="secondary"):
+        if st.button("Abmelden", type="secondary"):
             st.session_state.user_id = None
             st.session_state.user_name = None
             st.session_state.user_email = None
@@ -688,11 +936,17 @@ def main():
     
     st.markdown("---")
 
-    tab1, tab2 = st.tabs(["🏆 Neues Turnier", "📋 Aktuelle Turniere"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Neues Turnier", "Turniere verwalten", "Ranking", "Statistiken"])
     with tab1:
-        create_new_tournament(st.session_state.user_id, st.session_state.user_email)
+        show_user_dashboard(st.session_state.user_id)
     with tab2:
+        create_new_tournament(st.session_state.user_id, st.session_state.user_email)
+    with tab3:
         manage_tournaments(st.session_state.user_id)
+    with tab4:
+        show_rankings(st.session_state.user_id)
+    with tab5:
+        show_statistics(st.session_state.user_id)
 
 if __name__ == "__main__":
     main()
