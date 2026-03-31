@@ -96,6 +96,43 @@ class Database:
             logger.error(f"Error in get_or_create_user: {e}")
             return None, False
     
+    def user_exists(self, user_id):
+        """Check if a user exists in the database"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT EXISTS(SELECT 1 FROM users WHERE id = %s)
+                """, (user_id,))
+                exists = cursor.fetchone()[0]
+                cursor.close()
+                return exists
+        except Exception as e:
+            logger.error(f"Error checking if user exists: {e}")
+            return False
+    
+    def get_user_by_id(self, user_id):
+        """Get user by ID"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute("""
+                    SELECT id, email, created_at, last_login
+                    FROM users
+                    WHERE id = %s
+                """, (user_id,))
+                user = cursor.fetchone()
+                cursor.close()
+                
+                if user:
+                    user_dict = dict(user)
+                    user_dict['id'] = str(user_dict['id'])
+                    return user_dict
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching user by ID: {e}")
+            return None
+    
     def get_user_stats(self, user_id):
         """Get statistics for a user"""
         try:

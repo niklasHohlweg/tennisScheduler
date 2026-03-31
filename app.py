@@ -50,6 +50,15 @@ def create_app(config_name='default'):
             if 'user_id' not in session:
                 flash('Bitte melden Sie sich an.', 'warning')
                 return redirect(url_for('login'))
+            
+            # Verify user still exists in database
+            db = get_db()
+            if not db.user_exists(session['user_id']):
+                logger.warning(f"User {session.get('user_id')} not found in database, clearing session")
+                session.clear()
+                flash('Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.', 'warning')
+                return redirect(url_for('login'))
+            
             return f(*args, **kwargs)
         return decorated_function
     
