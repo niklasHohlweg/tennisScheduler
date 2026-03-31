@@ -107,6 +107,39 @@
     </div>
 </div>
 
+<!-- Team Players (if any) -->
+{% if players_by_team %}
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 mb-6 sm:mb-8">
+    <h2 class="text-lg sm:text-xl font-bold text-[#0F3A4A] mb-4">Teams & Spieler</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for team_name in tournament.teams %}
+        <div class="p-4 sm:p-5 bg-[#F4F6F5] rounded-lg border border-[#D9D9D9]">
+            <div class="flex items-center gap-2 mb-3">
+                <div class="w-8 h-8 rounded-full bg-[#CFEA7A] flex items-center justify-center">
+                    <span class="text-sm font-bold text-[#0F3A4A]">{{ loop.index }}</span>
+                </div>
+                <h3 class="font-bold text-[#0F3A4A] text-base">{{ team_name }}</h3>
+            </div>
+            {% if team_name in players_by_team %}
+            <ul class="space-y-2">
+                {% for player_name in players_by_team[team_name] %}
+                <li class="flex items-center gap-2 text-sm text-gray-700">
+                    <svg class="w-4 h-4 text-[#A8D430]" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                    </svg>
+                    <span>{{ player_name }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-gray-500 italic">Keine Spieler zugewiesen</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Quick Actions -->
 <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
     <a href="{{ url_for('tournament_matches', tournament_id=tournament.id) }}" 

@@ -117,59 +117,173 @@ def create_app(config_name='default'):
         """Create new tournament"""
         if request.method == 'POST':
             try:
-                name = request.form.get('name', '').strip()
-                num_teams = int(request.form.get('num_teams', 4))
-                num_courts = int(request.form.get('num_courts', 2))
-                players_per_team = int(request.form.get('players_per_team', 4))
-                mode = request.form.get('mode', 'time_based')
+                import math
+                import random
                 
-                # Validate input ranges
+                name = request.form.get('name', '').strip()
+                mode = request.form.get('mode', 'time_based')
+                match_type = request.form.get('match_type', 'single')
+                player_input_mode = request.form.get('player_input_mode', 'count')
+                
+                # Validate input
                 if not name:
                     flash('Turniername ist erforderlich.', 'error')
                     return redirect(url_for('create_tournament'))
                 
-                if num_teams < 2 or num_teams > 100:
-                    flash('Anzahl der Teams muss zwischen 2 und 100 liegen.', 'error')
-                    return redirect(url_for('create_tournament'))
+                # Process based on input mode
+                if player_input_mode == 'names':
+                    # Get player names from textarea
+                    player_names_raw = request.form.get('player_names', '').strip()
+                    if not player_names_raw:
+                        flash('Bitte geben Sie Spielernamen ein.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Parse player names (one per line or comma-separated)
+                    player_names = [name.strip() for name in player_names_raw.replace(',', '\n').split('\n') if name.strip()]
+                    
+                    if len(player_names) < 4:
+                        flash('Mindestens 4 Spieler erforderlich.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Check for duplicate names
+                    if len(player_names) != len(set(player_names)):
+                        flash('Spielernamen müssen eindeutig sein.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Get team size and courts
+                    team_size = int(request.form.get('team_size_names', 4))
+                    num_courts = int(request.form.get('num_courts_names', 2))
+                    
+                    # Validate input ranges
+                    if team_size < 2 or team_size > 10:
+                        flash('Teamgröße muss zwischen 2 und 10 liegen.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    if num_courts < 1 or num_courts > 50:
+                        flash('Anzahl der Plätze muss zwischen 1 und 50 liegen.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Calculate number of teams
+                    num_players = len(player_names)
+                    num_teams = math.ceil(num_players / team_size)
+                    
+                    if num_teams < 2:
+                        flash('Mindestens 2 Teams erforderlich.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Randomly shuffle players
+                    random.shuffle(player_names)
+                    
+                    # Calculate team sizes with even distribution
+                    base_size = num_players // num_teams
+                    remainder = num_players % num_teams
+                    players_per_team = base_size + (1 if remainder > 0 else 0)
+                    
+                    # Get team names
+                    teams = []
+                    for i in range(num_teams):
+                        team_name = request.form.get(f'team_{i}', '').strip()
+                        if not team_name:
+                            team_name = f'Team {i+1}'
+                        teams.append(team_name)
+                    
+                    # Validate team name uniqueness
+                    if len(teams) != len(set(teams)):
+                        flash('Teamnamen müssen eindeutig sein.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Assign players to teams
+                    player_team_mapping = []
+                    player_idx = 0
+                    for team_idx, team_name in enumerate(teams):
+                        # Determine team size (larger teams get one extra player)
+                        current_team_size = base_size + (1 if team_idx < remainder else 0)
+                        
+                        for _ in range(current_team_size):
+                            if player_idx < len(player_names):
+                                player_team_mapping.append((player_names[player_idx], team_name))
+                                player_idx += 1
+                    
+                    # Create tournament
+                    db = get_db()
+                    tournament_id = db.create_tournament(
+                        name, teams, num_courts, players_per_team, mode,
+                        session['user_id'], session['user_email'],
+                        match_type=match_type,
+                        num_players=num_players,
+                        team_size=team_size
+                    )
+                    
+                    if tournament_id:
+                        # Save player assignments
+                        db.save_players(tournament_id, player_team_mapping)
+                        flash('Turnier erfolgreich erstellt! Spieler wurden zufällig in Teams eingeteilt.', 'success')
+                        return redirect(url_for('tournament_schedule', tournament_id=tournament_id))
+                    else:
+                        flash('Fehler beim Erstellen des Turniers.', 'error')
                 
-                if num_courts < 1 or num_courts > 50:
-                    flash('Anzahl der Plätze muss zwischen 1 und 50 liegen.', 'error')
-                    return redirect(url_for('create_tournament'))
-                
-                if players_per_team < 2 or players_per_team > 10:
-                    flash('Spieler pro Team muss zwischen 2 und 10 liegen.', 'error')
-                    return redirect(url_for('create_tournament'))
-                
-                # Get team names
-                teams = []
-                for i in range(num_teams):
-                    team_name = request.form.get(f'team_{i}', '').strip()
-                    # If no team name provided, use default "Team X"
-                    if not team_name:
-                        team_name = f'Team {i+1}'
-                    teams.append(team_name)
-                
-                # Validate team name uniqueness
-                if len(teams) != len(set(teams)):
-                    flash('Teamnamen müssen eindeutig sein.', 'error')
-                    return redirect(url_for('create_tournament'))
-                
-                if len(teams) < 2:
-                    flash('Mindestens 2 Teams erforderlich.', 'error')
-                    return redirect(url_for('create_tournament'))
-                
-                # Create tournament
-                db = get_db()
-                tournament_id = db.create_tournament(
-                    name, teams, num_courts, players_per_team, mode,
-                    session['user_id'], session['user_email']
-                )
-                
-                if tournament_id:
-                    flash('Turnier erfolgreich erstellt!', 'success')
-                    return redirect(url_for('tournament_schedule', tournament_id=tournament_id))
-                else:
-                    flash('Fehler beim Erstellen des Turniers.', 'error')
+                else:  # player_input_mode == 'count'
+                    # Get form data - original approach with num_players and team_size
+                    num_players = int(request.form.get('num_players', 8))
+                    team_size = int(request.form.get('team_size', 4))
+                    num_courts = int(request.form.get('num_courts', 2))
+                    
+                    # Validate input ranges
+                    if num_players < 4 or num_players > 200:
+                        flash('Anzahl der Spieler muss zwischen 4 und 200 liegen.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    if team_size < 2 or team_size > 10:
+                        flash('Teamgröße muss zwischen 2 und 10 liegen.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    if num_courts < 1 or num_courts > 50:
+                        flash('Anzahl der Plätze muss zwischen 1 und 50 liegen.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Calculate number of teams based on num_players and team_size
+                    num_teams = math.ceil(num_players / team_size)
+                    
+                    if num_teams < 2:
+                        flash('Mindestens 2 Teams erforderlich. Erhöhen Sie die Anzahl der Spieler oder verringern Sie die Teamgröße.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Calculate team sizes with even distribution
+                    base_size = num_players // num_teams
+                    remainder = num_players % num_teams
+                    
+                    # For database, store the maximum team size
+                    players_per_team = base_size + (1 if remainder > 0 else 0)
+                    
+                    # Get team names
+                    teams = []
+                    for i in range(num_teams):
+                        team_name = request.form.get(f'team_{i}', '').strip()
+                        # If no team name provided, use default "Team X"
+                        if not team_name:
+                            team_name = f'Team {i+1}'
+                        teams.append(team_name)
+                    
+                    # Validate team name uniqueness
+                    if len(teams) != len(set(teams)):
+                        flash('Teamnamen müssen eindeutig sein.', 'error')
+                        return redirect(url_for('create_tournament'))
+                    
+                    # Create tournament
+                    db = get_db()
+                    tournament_id = db.create_tournament(
+                        name, teams, num_courts, players_per_team, mode,
+                        session['user_id'], session['user_email'],
+                        match_type=match_type,
+                        num_players=num_players,
+                        team_size=team_size
+                    )
+                    
+                    if tournament_id:
+                        flash('Turnier erfolgreich erstellt!', 'success')
+                        return redirect(url_for('tournament_schedule', tournament_id=tournament_id))
+                    else:
+                        flash('Fehler beim Erstellen des Turniers.', 'error')
                     
             except Exception as e:
                 logger.error(f"Error creating tournament: {e}")
@@ -190,6 +304,7 @@ def create_app(config_name='default'):
         
         matches = db.get_matches(tournament_id, session['user_id'])
         ranking = db.get_ranking(tournament_id, session['user_id'])
+        players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
         
         match_stats = calculate_match_stats(matches)
         team_distribution = calculate_team_distribution(matches, tournament['teams'])
@@ -199,7 +314,8 @@ def create_app(config_name='default'):
                              matches=matches,
                              ranking=ranking,
                              match_stats=match_stats,
-                             team_distribution=team_distribution)
+                             team_distribution=team_distribution,
+                             players_by_team=players_by_team)
     
     @app.route('/tournament/<tournament_id>/schedule', methods=['GET', 'POST'])
     @login_required
@@ -214,15 +330,25 @@ def create_app(config_name='default'):
         
         if request.method == 'POST':
             try:
+                # Get match_type from tournament, default to 'single' for backwards compatibility
+                match_type = tournament.get('match_type', 'single')
+                
                 scheduler = TennisScheduler(
                     tournament['num_courts'],
                     tournament['teams'],
-                    tournament['players_per_team']
+                    tournament['players_per_team'],
+                    match_type=match_type
                 )
                 
                 if tournament['mode'] == 'time_based':
                     duration = int(request.form.get('duration', 120))
-                    schedule, stats = scheduler.create_time_based_schedule(duration)
+                    round_duration = int(request.form.get('round_duration', tournament.get('round_duration', 15)))
+                    break_duration = int(request.form.get('break_duration', tournament.get('break_duration', 5)))
+                    
+                    # Update tournament with new round settings
+                    db.update_tournament_round_settings(tournament_id, session['user_id'], round_duration, break_duration)
+                    
+                    schedule, stats = scheduler.create_time_based_schedule(duration, round_duration, break_duration)
                 else:  # round_robin
                     import time
                     start_time = time.time()
@@ -245,7 +371,10 @@ def create_app(config_name='default'):
                 logger.error(f"Error generating schedule: {e}")
                 flash('Fehler beim Generieren des Spielplans.', 'error')
         
-        return render_template('tournament_schedule.html', tournament=tournament)
+        players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
+        return render_template('tournament_schedule.html', 
+                             tournament=tournament,
+                             players_by_team=players_by_team)
     
     @app.route('/tournament/<tournament_id>/edit', methods=['GET', 'POST'])
     @login_required
@@ -337,6 +466,7 @@ def create_app(config_name='default'):
             return redirect(url_for('dashboard'))
         
         matches = db.get_matches(tournament_id, session['user_id'])
+        players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
         
         # Group matches by round
         rounds = {}
@@ -349,7 +479,8 @@ def create_app(config_name='default'):
         return render_template('matches.html',
                              tournament=tournament,
                              rounds=rounds,
-                             matches=matches)
+                             matches=matches,
+                             players_by_team=players_by_team)
     
     @app.route('/tournament/<tournament_id>/ranking')
     @login_required
@@ -363,10 +494,12 @@ def create_app(config_name='default'):
             return redirect(url_for('dashboard'))
         
         ranking = db.get_ranking(tournament_id, session['user_id'])
+        players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
         
         return render_template('ranking.html',
                              tournament=tournament,
-                             ranking=ranking)
+                             ranking=ranking,
+                             players_by_team=players_by_team)
     
     # ==================== EXPORT ROUTES ====================
     

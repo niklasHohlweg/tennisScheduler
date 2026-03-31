@@ -54,11 +54,49 @@
                     min="20" 
                     max="600" 
                     value="120"
-                    step="20"
+                    step="5"
                     required
                     class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
                 >
-                <p class="mt-2 text-sm text-gray-600">Standard: 120 Minuten (2 Stunden)</p>
+                <p class="mt-2 text-sm text-gray-600">Gesamtdauer des Turniers (Standard: 120 Minuten)</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6 mb-8">
+                <div>
+                    <label for="round_duration" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                        Rundenlänge (Minuten) *
+                    </label>
+                    <input 
+                        type="number" 
+                        id="round_duration" 
+                        name="round_duration" 
+                        min="5" 
+                        max="60" 
+                        value="{{ tournament.round_duration if tournament.round_duration else 15 }}"
+                        step="5"
+                        required
+                        class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+                    >
+                    <p class="mt-2 text-sm text-gray-600">Dauer einer Spielrunde (Standard: 15 Min)</p>
+                </div>
+
+                <div>
+                    <label for="break_duration" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                        Pause zwischen Runden (Minuten) *
+                    </label>
+                    <input 
+                        type="number" 
+                        id="break_duration" 
+                        name="break_duration" 
+                        min="0" 
+                        max="30" 
+                        value="{{ tournament.break_duration if tournament.break_duration else 5 }}"
+                        step="1"
+                        required
+                        class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+                    >
+                    <p class="mt-2 text-sm text-gray-600">Pause nach jeder Runde (Standard: 5 Min)</p>
+                </div>
             </div>
 
             <div class="p-6 bg-[#E6F4FF] rounded-xl mb-8 border-l-4 border-[#1F6F78]">
@@ -69,8 +107,9 @@
                     Zeitbasierter Modus
                 </h4>
                 <p class="text-sm text-[#1A1A1A]">
-                    Der Algorithmus plant so viele Matches wie möglich in der angegebenen Zeit.
-                    Jede Runde dauert ca. 20 Minuten (15 Min Spiel + 5 Min Pause).
+                    Der Algorithmus berechnet die Anzahl der Runden aus:<br>
+                    <strong>Anzahl Runden = Turnierdauer ÷ (Rundenlänge + Pause)</strong><br>
+                    Jedes Team spielt maximal 1x gegen jedes andere Team.
                 </p>
             </div>
             {% else %}
@@ -113,6 +152,31 @@
             </svg>
             Teilnehmende Teams
         </h3>
+        
+        {% if players_by_team and players_by_team|length > 0 %}
+        <!-- Teams with player names -->
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {% for team_name, players in players_by_team.items() %}
+            <div class="border-2 border-[#D9D9D9] rounded-lg p-4 hover:border-[#A8D430] transition-colors bg-[#F4F6F5]">
+                <div class="flex items-center gap-2 mb-3 pb-2 border-b-2 border-[#A8D430]">
+                    <span class="text-2xl">🎾</span>
+                    <span class="font-bold text-[#0F3A4A] text-base">{{ team_name }}</span>
+                </div>
+                <div class="space-y-1">
+                    {% for player in players %}
+                    <div class="text-sm text-[#1A1A1A] flex items-center gap-2">
+                        <svg class="w-3 h-3 text-[#1F6F78]" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                        </svg>
+                        {{ player }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <!-- Teams without player names (fallback) -->
         <div class="grid md:grid-cols-3 gap-3">
             {% for team in tournament.teams %}
             <div class="px-4 py-3 bg-[#F4F6F5] border border-[#D9D9D9] rounded-lg text-sm font-medium text-[#1A1A1A] hover:border-[#A8D430] transition-colors">
@@ -120,6 +184,7 @@
             </div>
             {% endfor %}
         </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

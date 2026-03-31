@@ -70,10 +70,24 @@
 
                 <div class="space-y-3">
                     <div class="flex justify-between items-center p-3 sm:p-4 {% if match.winner == match.team1 %}bg-brand-light-green rounded-brand{% else %}bg-brand-bg rounded-brand{% endif %} min-h-[60px]">
-                        <span class="font-bold text-brand-text text-sm sm:text-base {% if match.winner == match.team1 %}sm:text-lg{% endif %} break-words pr-2">
-                            {{ match.team1 }}
-                            {% if match.winner == match.team1 %}<span class="ml-2">🏆</span>{% endif %}
-                        </span>
+                        <div class="flex-1">
+                            <span class="font-bold text-brand-text text-sm sm:text-base {% if match.winner == match.team1 %}sm:text-lg{% endif %} break-words pr-2">
+                                {{ match.team1 }}
+                                {% if match.winner == match.team1 %}<span class="ml-2">🏆</span>{% endif %}
+                            </span>
+                            {% if players_by_team and match.team1 in players_by_team %}
+                            <div class="text-xs text-gray-600 mt-1 flex flex-wrap gap-1">
+                                {% for player in players_by_team[match.team1] %}
+                                <span class="inline-flex items-center gap-1">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                                    </svg>
+                                    {{ player }}{% if not loop.last %},{% endif %}
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
                         {% if match.winner %}
                         <span class="font-bold text-xl sm:text-2xl {% if match.winner == match.team1 %}text-brand-green{% else %}text-gray-600{% endif %}">{{ match.team1_score }}</span>
                         {% endif %}
@@ -82,10 +96,24 @@
                     <div class="text-center text-gray-400 font-bold text-sm">VS</div>
                     
                     <div class="flex justify-between items-center p-3 sm:p-4 {% if match.winner == match.team2 %}bg-brand-light-green rounded-brand{% else %}bg-brand-bg rounded-brand{% endif %} min-h-[60px]">
-                        <span class="font-bold text-brand-text text-sm sm:text-base {% if match.winner == match.team2 %}sm:text-lg{% endif %} break-words pr-2">
-                            {{ match.team2 }}
-                            {% if match.winner == match.team2 %}<span class="ml-2">🏆</span>{% endif %}
-                        </span>
+                        <div class="flex-1">
+                            <span class="font-bold text-brand-text text-sm sm:text-base {% if match.winner == match.team2 %}sm:text-lg{% endif %} break-words pr-2">
+                                {{ match.team2 }}
+                                {% if match.winner == match.team2 %}<span class="ml-2">🏆</span>{% endif %}
+                            </span>
+                            {% if players_by_team and match.team2 in players_by_team %}
+                            <div class="text-xs text-gray-600 mt-1 flex flex-wrap gap-1">
+                                {% for player in players_by_team[match.team2] %}
+                                <span class="inline-flex items-center gap-1">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                                    </svg>
+                                    {{ player }}{% if not loop.last %},{% endif %}
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
                         {% if match.winner %}
                         <span class="font-bold text-xl sm:text-2xl {% if match.winner == match.team2 %}text-brand-green{% else %}text-gray-600{% endif %}">{{ match.team2_score }}</span>
                         {% endif %}

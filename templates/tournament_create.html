@@ -51,55 +51,189 @@
                 </div>
             </div>
 
-            <!-- Configuration Grid -->
-            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
-                <div>
-                    <label for="num_teams" class="block text-sm font-semibold text-brand-text mb-2">
-                        Anzahl Teams *
+            <!-- Match Type Selection -->
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-brand-text mb-3">
+                    Spielmodus *
+                </label>
+                <div class="grid sm:grid-cols-2 gap-4">
+                    <label class="relative flex items-start p-4 sm:p-5 border-2 rounded-brand cursor-pointer card-hover min-h-[60px]"
+                           :class="matchType === 'single' ? 'border-brand-green bg-green-50' : 'border-brand-border'">
+                        <input type="radio" name="match_type" value="single" x-model="matchType" class="mt-1 accent-brand-green" checked>
+                        <div class="ml-3">
+                            <span class="block font-bold text-brand-text mb-1 text-sm sm:text-base">🎾 Einzel</span>
+                            <span class="block text-xs sm:text-sm text-gray-600">Jeder Spieler spielt einzeln</span>
+                        </div>
                     </label>
-                    <input 
-                        type="number" 
-                        id="num_teams" 
-                        name="num_teams" 
-                        x-model.number="numTeams"
-                        min="2" 
-                        max="50" 
-                        value="4"
-                        required
-                        class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
-                    >
+                    <label class="relative flex items-start p-4 sm:p-5 border-2 rounded-brand cursor-pointer card-hover min-h-[60px]"
+                           :class="matchType === 'double' ? 'border-brand-green bg-green-50' : 'border-brand-border'">
+                        <input type="radio" name="match_type" value="double" x-model="matchType" class="mt-1 accent-brand-green">
+                        <div class="ml-3">
+                            <span class="block font-bold text-brand-text mb-1 text-sm sm:text-base">👥 Doppel</span>
+                            <span class="block text-xs sm:text-sm text-gray-600">Spieler spielen als Paare</span>
+                        </div>
+                    </label>
                 </div>
+            </div>
 
-                <div>
-                    <label for="num_courts" class="block text-sm font-semibold text-brand-text mb-2">
-                        Anzahl Plätze *
+            <!-- Player and Team Size Configuration -->
+            <div class="mb-6">
+                <label class="block text-sm font-semibold text-brand-text mb-3">
+                    Spieler-Eingabe *
+                </label>
+                <div class="grid gap-4 mb-4">
+                    <label class="relative flex items-start p-4 sm:p-5 border-2 rounded-brand cursor-pointer card-hover min-h-[60px]"
+                           :class="playerInputMode === 'count' ? 'border-brand-green bg-green-50' : 'border-brand-border'">
+                        <input type="radio" name="player_input_mode" value="count" x-model="playerInputMode" @change="updateTeamCount()" class="mt-1 accent-brand-green" checked>
+                        <div class="ml-3">
+                            <span class="block font-bold text-brand-text mb-1 text-sm sm:text-base">🔢 Anzahl der Spieler</span>
+                            <span class="block text-xs sm:text-sm text-gray-600">Teams werden automatisch zugeordnet</span>
+                        </div>
                     </label>
-                    <input 
-                        type="number" 
-                        id="num_courts" 
-                        name="num_courts" 
-                        min="1" 
-                        max="20" 
-                        value="2"
-                        required
-                        class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
-                    >
+                    <label class="relative flex items-start p-4 sm:p-5 border-2 rounded-brand cursor-pointer card-hover min-h-[60px]"
+                           :class="playerInputMode === 'names' ? 'border-brand-green bg-green-50' : 'border-brand-border'">
+                        <input type="radio" name="player_input_mode" value="names" x-model="playerInputMode" @change="updateTeamCount()" class="mt-1 accent-brand-green">
+                        <div class="ml-3">
+                            <span class="block font-bold text-brand-text mb-1 text-sm sm:text-base">📝 Spielernamen eingeben</span>
+                            <span class="block text-xs sm:text-sm text-gray-600">Spieler werden zufällig in Teams eingeteilt</span>
+                        </div>
+                    </label>
                 </div>
+                
+                <!-- Number-based input -->
+                <div x-show="playerInputMode === 'count'" class="space-y-4">
+                    <div class="grid sm:grid-cols-3 gap-4 sm:gap-6">
+                        <div>
+                            <label for="num_players" class="block text-sm font-semibold text-brand-text mb-2">
+                                Anzahl Spieler *
+                            </label>
+                            <input 
+                                type="number" 
+                                id="num_players" 
+                                name="num_players" 
+                                x-model.number="numPlayers"
+                                min="4" 
+                                max="200" 
+                                value="8"
+                                :required="playerInputMode === 'count'"
+                                @input="updateTeamCount()"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                            >
+                        </div>
 
-                <div>
-                    <label for="players_per_team" class="block text-sm font-semibold text-brand-text mb-2">
-                        Spieler pro Team *
-                    </label>
-                    <input 
-                        type="number" 
-                        id="players_per_team" 
-                        name="players_per_team" 
-                        min="2" 
-                        max="10" 
-                        value="4"
-                        required
-                        class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
-                    >
+                        <div>
+                            <label for="team_size" class="block text-sm font-semibold text-brand-text mb-2">
+                                Gewünschte Teamgröße *
+                            </label>
+                            <input 
+                                type="number" 
+                                id="team_size" 
+                                name="team_size" 
+                                x-model.number="teamSize"
+                                min="2" 
+                                max="10" 
+                                value="4"
+                                :required="playerInputMode === 'count'"
+                                @input="updateTeamCount()"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                            >
+                        </div>
+
+                        <div>
+                            <label for="num_courts" class="block text-sm font-semibold text-brand-text mb-2">
+                                Anzahl Plätze *
+                            </label>
+                            <input 
+                                type="number" 
+                                id="num_courts" 
+                                name="num_courts" 
+                                min="1" 
+                                max="20" 
+                                value="2"
+                                required
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
+                            >
+                        </div>
+                    </div>
+                    
+                    <!-- Team Distribution Info -->
+                    <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-brand">
+                        <p class="text-sm text-blue-900 font-medium">
+                            <span class="font-bold">📊 Teamaufteilung:</span> 
+                            <span x-text="numTeams"></span> Teams werden erstellt
+                            <span x-show="teamSizeMin === teamSizeMax" x-text="'mit je ' + teamSizeMin + ' Spielern'"></span>
+                            <span x-show="teamSizeMin !== teamSizeMax" x-text="'(' + numTeamsLarge + ' Teams mit ' + teamSizeMax + ' Spielern, ' + numTeamsSmall + ' Teams mit ' + teamSizeMin + ' Spielern)'"></span>
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Name-based input -->
+                <div x-show="playerInputMode === 'names'" class="space-y-4">
+                    <div class="grid sm:grid-cols-2 gap-4 sm:gap-6">
+                        <div class="sm:col-span-2">
+                            <label for="player_names" class="block text-sm font-semibold text-brand-text mb-2">
+                                Spielernamen (einer pro Zeile) *
+                            </label>
+                            <textarea 
+                                id="player_names" 
+                                name="player_names" 
+                                x-model="playerNames"
+                                @input="updatePlayerList()"
+                                rows="10"
+                                :required="playerInputMode === 'names'"
+                                placeholder="Max Mustermann&#10;Anna Schmidt&#10;Tom Weber&#10;Lisa Müller&#10;..."
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green font-mono text-sm"
+                            ></textarea>
+                            <p class="text-xs text-gray-500 mt-2">
+                                Geben Sie jeden Spielernamen in eine neue Zeile ein
+                            </p>
+                        </div>
+
+                        <div>
+                            <label for="team_size_names" class="block text-sm font-semibold text-brand-text mb-2">
+                                Gewünschte Teamgröße *
+                            </label>
+                            <input 
+                                type="number" 
+                                id="team_size_names" 
+                                name="team_size_names" 
+                                x-model.number="teamSizeForNames"
+                                min="2" 
+                                max="10" 
+                                value="4"
+                                :required="playerInputMode === 'names'"
+                                @input="updatePlayerList()"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                            >
+                        </div>
+
+                        <div>
+                            <label for="num_courts_names" class="block text-sm font-semibold text-brand-text mb-2">
+                                Anzahl Plätze *
+                            </label>
+                            <input 
+                                type="number" 
+                                id="num_courts_names" 
+                                name="num_courts_names" 
+                                min="1" 
+                                max="20" 
+                                value="2"
+                                :required="playerInputMode === 'names'"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
+                            >
+                        </div>
+                    </div>
+                    
+                    <!-- Player List Info -->
+                    <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-brand">
+                        <p class="text-sm text-blue-900 font-medium">
+                            <span class="font-bold">📊 Teamaufteilung:</span> 
+                            <span x-text="playerList.length"></span> Spieler → 
+                            <span x-text="numTeamsFromNames"></span> Teams
+                            <span x-show="playerList.length > 0 && teamSizeMinNames === teamSizeMaxNames" x-text="'mit je ' + teamSizeMinNames + ' Spielern'"></span>
+                            <span x-show="playerList.length > 0 && teamSizeMinNames !== teamSizeMaxNames" x-text="'(' + numTeamsLargeNames + ' Teams mit ' + teamSizeMaxNames + ' Spielern, ' + numTeamsSmallNames + ' Teams mit ' + teamSizeMinNames + ' Spielern)'"></span>
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -110,13 +244,29 @@
                 </label>
                 <p class="text-sm text-gray-600 mb-3 font-medium">Leer lassen für automatische Namen (Team 1, Team 2, ...)</p>
                 <div class="space-y-2" id="team-names">
-                    <template x-for="i in numTeams" :key="i">
-                        <input 
-                            type="text" 
-                            :name="'team_' + (i - 1)" 
-                            :placeholder="'Team ' + i"
-                            class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
-                        >
+                    <template x-if="playerInputMode === 'count'">
+                        <div class="space-y-2">
+                            <template x-for="i in numTeams" :key="i">
+                                <input 
+                                    type="text" 
+                                    :name="'team_' + (i - 1)" 
+                                    :placeholder="'Team ' + i"
+                                    class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
+                                >
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="playerInputMode === 'names'">
+                        <div class="space-y-2">
+                            <template x-for="i in numTeamsFromNames" :key="i">
+                                <input 
+                                    type="text" 
+                                    :name="'team_' + (i - 1)" 
+                                    :placeholder="'Team ' + i"
+                                    class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
+                                >
+                            </template>
+                        </div>
                     </template>
                 </div>
             </div>
@@ -141,7 +291,72 @@
 function tournamentForm() {
     return {
         mode: 'time_based',
-        numTeams: 4
+        matchType: 'single',
+        playerInputMode: 'count',
+        numPlayers: 8,
+        teamSize: 4,
+        numTeams: 2,
+        teamSizeMin: 4,
+        teamSizeMax: 4,
+        numTeamsLarge: 0,
+        numTeamsSmall: 0,
+        playerNames: '',
+        playerList: [],
+        teamSizeForNames: 4,
+        numTeamsFromNames: 0,
+        teamSizeMinNames: 0,
+        teamSizeMaxNames: 0,
+        numTeamsLargeNames: 0,
+        numTeamsSmallNames: 0,
+        
+        updateTeamCount() {
+            if (this.playerInputMode === 'count') {
+                // Calculate number of teams based on num_players and team_size
+                this.numTeams = Math.ceil(this.numPlayers / this.teamSize);
+                
+                // Calculate team size distribution for even spread
+                const baseSize = Math.floor(this.numPlayers / this.numTeams);
+                const remainder = this.numPlayers % this.numTeams;
+                
+                this.teamSizeMin = baseSize;
+                this.teamSizeMax = baseSize + (remainder > 0 ? 1 : 0);
+                this.numTeamsLarge = remainder;
+                this.numTeamsSmall = this.numTeams - remainder;
+            }
+        },
+        
+        updatePlayerList() {
+            // Parse player names (one per line or comma-separated)
+            const names = this.playerNames
+                .split(/[\n,]/)
+                .map(name => name.trim())
+                .filter(name => name.length > 0);
+            
+            this.playerList = names;
+            
+            // Calculate teams for name-based mode
+            const numPlayers = this.playerList.length;
+            if (numPlayers > 0) {
+                this.numTeamsFromNames = Math.ceil(numPlayers / this.teamSizeForNames);
+                const baseSize = Math.floor(numPlayers / this.numTeamsFromNames);
+                const remainder = numPlayers % this.numTeamsFromNames;
+                
+                this.teamSizeMinNames = baseSize;
+                this.teamSizeMaxNames = baseSize + (remainder > 0 ? 1 : 0);
+                this.numTeamsLargeNames = remainder;
+                this.numTeamsSmallNames = this.numTeamsFromNames - remainder;
+            } else {
+                this.numTeamsFromNames = 0;
+                this.teamSizeMinNames = 0;
+                this.teamSizeMaxNames = 0;
+                this.numTeamsLargeNames = 0;
+                this.numTeamsSmallNames = 0;
+            }
+        },
+        
+        init() {
+            this.updateTeamCount();
+        }
     }
 }
 </script>

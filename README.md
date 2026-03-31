@@ -6,11 +6,13 @@ A modern web application for managing tennis tournaments with match scheduling, 
 
 - **User Authentication**: Email-based login system
 - **Tournament Management**: Create, edit, and delete tournaments
+- **Player Name Input**: ✨ NEW! Enter actual player names and randomly assign them to teams
 - **Smart Scheduling**: 
   - Time-based scheduling (maximize matches in available time)
   - Round-robin scheduling (every team plays every other team)
 - **Match Tracking**: Record match results and scores in real-time
 - **Live Rankings**: Automatic ranking calculation with detailed statistics
+- **Team & Player Overview**: View all teams with their assigned players
 - **Data Export**: Export tournament data as PDF, CSV, or Excel
 - **PostgreSQL Database**: Persistent data storage with full ACID compliance
 - **Modern UI**: Responsive design with Tailwind CSS and HTMX for smooth interactions
@@ -37,9 +39,22 @@ A modern web application for managing tennis tournaments with match scheduling, 
 2. **Create Tournament**: Click "Neues Turnier" and configure:
    - Tournament name
    - Mode (Time-based or Round Robin)
-   - Number of teams, courts, and players per team
-   - Team names
+   - **Player Input** (NEW!):
+     - **Option 1**: Enter player count only (automatic assignment)
+     - **Option 2**: Enter actual player names (one per line) - players will be randomly assigned to teams
+   - Number of courts and desired team size
+   - Optional: Custom team names
 3. **Generate Schedule**: Choose duration (time-based) or generate full schedule (round robin)
+
+### Player Names Feature (NEW!)
+
+When creating a tournament, you can now:
+- Enter actual player names (one per line)
+- System automatically shuffles and assigns players to teams
+- View player assignments in tournament details
+- Fair and balanced team distribution
+
+See [PLAYER_NAMES_FEATURE.md](PLAYER_NAMES_FEATURE.md) for detailed documentation.
 
 ### Managing Matches
 

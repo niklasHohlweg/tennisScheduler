@@ -118,17 +118,20 @@ class Database:
     
     # ==================== TOURNAMENT OPERATIONS ====================
     
-    def create_tournament(self, name, teams, num_courts, players_per_team, mode, owner_id, owner_email):
+    def create_tournament(self, name, teams, num_courts, players_per_team, mode, owner_id, owner_email, 
+                         match_type='single', num_players=None, team_size=None, round_duration=15, break_duration=5):
         """Create a tournament for the logged-in user"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
 
                 cursor.execute("""
-                    INSERT INTO tournaments (name, teams, num_courts, players_per_team, mode, owner_id, owner_email)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO tournaments (name, teams, num_courts, players_per_team, mode, owner_id, owner_email,
+                                           match_type, num_players, team_size, round_duration, break_duration)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (name, Json(teams), num_courts, players_per_team, mode, owner_id, owner_email))
+                """, (name, Json(teams), num_courts, players_per_team, mode, owner_id, owner_email, 
+                      match_type, num_players, team_size, round_duration, break_duration))
 
                 tournament_id = cursor.fetchone()['id']
 
@@ -154,7 +157,8 @@ class Database:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
                     SELECT id, name, teams, num_courts, players_per_team, mode, 
-                           owner_id, owner_email, created_at
+                           owner_id, owner_email, created_at, match_type, num_players, team_size,
+                           round_duration, break_duration
                     FROM tournaments
                     WHERE owner_id = %s
                     ORDER BY created_at DESC
@@ -179,7 +183,8 @@ class Database:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
                     SELECT id, name, teams, num_courts, players_per_team, mode, 
-                           owner_id, owner_email, created_at
+                           owner_id, owner_email, created_at, match_type, num_players, team_size,
+                           round_duration, break_duration
                     FROM tournaments
                     WHERE id = %s AND owner_id = %s
                 """, (tournament_id, owner_id))
@@ -211,6 +216,25 @@ class Database:
                 
         except Exception as e:
             logger.error(f"Error updating tournament: {e}")
+            return False
+    
+    def update_tournament_round_settings(self, tournament_id, owner_id, round_duration, break_duration):
+        """Update tournament round duration and break duration"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    UPDATE tournaments 
+                    SET round_duration = %s, break_duration = %s
+                    WHERE id = %s AND owner_id = %s
+                """, (round_duration, break_duration, tournament_id, owner_id))
+                
+                cursor.close()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating tournament round settings: {e}")
             return False
     
     def delete_tournament(self, tournament_id, owner_id):
@@ -246,7 +270,7 @@ class Database:
                 
                 query = """
                     SELECT id, name, teams, num_courts, players_per_team, mode, 
-                           owner_id, owner_email, created_at
+                           owner_id, owner_email, created_at, match_type, team_creation_mode, player_names
                     FROM tournaments
                     WHERE owner_id = %s
                 """
@@ -281,6 +305,85 @@ class Database:
         except Exception as e:
             logger.error(f"Error searching tournaments: {e}")
             return []
+    
+    # ==================== MATCH OPERATIONS ====================
+    
+    def save_players(self, tournament_id, player_team_mapping):
+        """Save player-to-team assignments
+        
+        Args:
+            tournament_id: UUID of the tournament
+            player_team_mapping: List of tuples (player_name, team_name)
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Delete existing players for this tournament
+                cursor.execute("DELETE FROM players WHERE tournament_id = %s", (tournament_id,))
+                
+                # Insert new player assignments
+                for player_name, team_name in player_team_mapping:
+                    cursor.execute("""
+                        INSERT INTO players (tournament_id, name, team_name)
+                        VALUES (%s, %s, %s)
+                    """, (tournament_id, player_name, team_name))
+                
+                cursor.close()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error saving players: {e}")
+            return False
+    
+    def get_players(self, tournament_id, owner_id):
+        """Get all players for a tournament (with owner check)"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # First check if tournament belongs to user
+                cursor.execute("""
+                    SELECT id FROM tournaments WHERE id = %s AND owner_id = %s
+                """, (tournament_id, owner_id))
+                if not cursor.fetchone():
+                    cursor.close()
+                    return []
+                
+                # Get players
+                cursor.execute("""
+                    SELECT id, name, team_name
+                    FROM players
+                    WHERE tournament_id = %s
+                    ORDER BY team_name, name
+                """, (tournament_id,))
+                
+                players = cursor.fetchall()
+                cursor.close()
+                
+                result = []
+                for p in players:
+                    p_dict = dict(p)
+                    p_dict['id'] = str(p_dict['id'])
+                    result.append(p_dict)
+                return result
+                
+        except Exception as e:
+            logger.error(f"Error fetching players: {e}")
+            return []
+    
+    def get_players_by_team(self, tournament_id, owner_id):
+        """Get players grouped by team"""
+        players = self.get_players(tournament_id, owner_id)
+        
+        teams_dict = {}
+        for player in players:
+            team_name = player['team_name']
+            if team_name not in teams_dict:
+                teams_dict[team_name] = []
+            teams_dict[team_name].append(player['name'])
+        
+        return teams_dict
     
     # ==================== MATCH OPERATIONS ====================
     

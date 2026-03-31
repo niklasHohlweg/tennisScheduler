@@ -73,6 +73,19 @@ CREATE INDEX IF NOT EXISTS idx_team_stats_tournament_id ON team_stats(tournament
 CREATE INDEX IF NOT EXISTS idx_team_stats_ranking ON team_stats(tournament_id, ranking_points DESC, matches_won DESC);
 CREATE INDEX IF NOT EXISTS idx_team_stats_lookup ON team_stats(tournament_id, team_name);
 
+-- Create players table
+CREATE TABLE IF NOT EXISTS players (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    team_name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create indexes for players table
+CREATE INDEX IF NOT EXISTS idx_players_tournament_id ON players(tournament_id);
+CREATE INDEX IF NOT EXISTS idx_players_team ON players(tournament_id, team_name);
+
 -- Grant necessary permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tennis_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO tennis_user;
