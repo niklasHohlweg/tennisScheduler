@@ -1,7 +1,15 @@
-streamlit>=1.28.0
-pandas>=1.5.0
-plotly>=5.15.0
+# Flask & Web Framework
+Flask>=3.0.0
+Werkzeug>=3.0.0
+
+# Database
 psycopg2-binary>=2.9.9
+
+# Data Processing & Export
+pandas>=2.0.0
 openpyxl>=3.1.0
 xlsxwriter>=3.1.0
 reportlab>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0

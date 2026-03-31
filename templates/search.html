@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Suchen{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-[#0F3A4A] mb-2">Turniere suchen</h1>
+    <p class="text-gray-600">Finden Sie Ihre Turniere nach Namen oder Datum</p>
+</div>
+
+<!-- Search Form -->
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 mb-8">
+    <form method="GET" action="{{ url_for('search_tournaments') }}" class="space-y-6">
+        <div>
+            <label for="q" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                🔍 Suchbegriff
+            </label>
+            <input 
+                type="text" 
+                id="q" 
+                name="q" 
+                value="{{ search_term }}"
+                placeholder="Turniername eingeben..."
+                class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+            >
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+            <div>
+                <label for="from" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                    📅 Von Datum
+                </label>
+                <input 
+                    type="date" 
+                    id="from" 
+                    name="from" 
+                    value="{{ date_from }}"
+                    class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+                >
+            </div>
+
+            <div>
+                <label for="to" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                    📅 Bis Datum
+                </label>
+                <input 
+                    type="date" 
+                    id="to" 
+                    name="to" 
+                    value="{{ date_to }}"
+                    class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+                >
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button 
+                type="submit" 
+                class="px-6 py-3 bg-[#A8D430] text-white rounded-lg font-semibold hover:bg-[#8FB828] hover:shadow-lg hover:scale-[1.02] transition-all duration-150 flex items-center gap-2"
+            >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Suchen
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Results -->
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] overflow-hidden">
+    <div class="px-6 py-4 bg-[#0F3A4A] border-b border-[#D9D9D9]">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Suchergebnisse 
+            {% if search_term or date_from or date_to %}
+            <span class="px-3 py-1 bg-[#A8D430] text-white text-sm rounded-full">{{ tournaments|length }} gefunden</span>
+            {% endif %}
+        </h2>
+    </div>
+
+    {% if tournaments %}
+    <div class="divide-y divide-[#D9D9D9]">
+        {% for tournament in tournaments %}
+        <div class="px-6 py-5 hover:bg-[#F4F6F5] transition duration-150">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                <div class="flex-1">
+                    <h3 class="text-lg font-bold text-[#0F3A4A] mb-2">
+                        <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" class="hover:text-[#A8D430] transition-colors">
+                            🎾 {{ tournament.name }}
+                        </a>
+                    </h3>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <span class="flex items-center gap-1 text-[#1A1A1A]">
+                            <svg class="w-4 h-4 text-[#1F6F78]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                            </svg>
+                            {{ tournament.num_courts }} Plätze
+                        </span>
+                        <span class="flex items-center gap-1 text-[#1A1A1A]">
+                            <svg class="w-4 h-4 text-[#1F6F78]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            {{ tournament.teams|length }} Teams
+                        </span>
+                        <span class="flex items-center gap-1 text-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            {{ tournament.created_at|format_datetime }}
+                        </span>
+                    </div>
+                </div>
+                <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" 
+                   class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-[#1F6F78] border-2 border-[#1F6F78] rounded-lg font-semibold hover:bg-[#1F6F78] hover:text-white transition-all duration-150 self-start">
+                    Details
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-6 py-16 text-center">
+        <div class="max-w-md mx-auto">
+            <div class="w-16 h-16 mx-auto mb-4 bg-[#F4F6F5] rounded-full flex items-center justify-center">
+                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+            </div>
+            <h3 class="text-lg font-bold text-[#0F3A4A] mb-2">
+                {% if search_term or date_from or date_to %}
+                Keine Turniere gefunden
+                {% else %}
+                Bereit zum Suchen
+                {% endif %}
+            </h3>
+            <p class="text-gray-600">
+                {% if search_term or date_from or date_to %}
+                Versuchen Sie andere Suchkriterien.
+                {% else %}
+                Geben Sie Suchkriterien ein, um Turniere zu finden.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

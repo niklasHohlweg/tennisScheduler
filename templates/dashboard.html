@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - JuNi OPEN{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold text-brand-text mb-2">Dashboard</h1>
+    <p class="text-gray-600 font-medium">Willkommen zurück, {{ user_email }}</p>
+</div>
+
+<!-- Stats Cards -->
+<div class="grid md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white rounded-brand shadow-sm border border-brand-border p-6 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600 mb-2 font-medium">Gesamte Turniere</p>
+                <p class="text-3xl font-bold text-brand-text">{{ stats.tournament_count }}</p>
+            </div>
+            <div class="text-5xl opacity-20">🏆</div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-brand shadow-sm border border-brand-border p-6 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600 mb-2 font-medium">Aktive Turniere</p>
+                <p class="text-3xl font-bold text-brand-teal">{{ tournaments|length }}</p>
+            </div>
+            <div class="text-5xl opacity-20">⚡</div>
+        </div>
+    </div>
+
+    <div class="bg-gradient-to-br from-brand-green to-brand-light-green rounded-brand shadow-sm p-6 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-white mb-2 font-medium opacity-90">Schnellzugriff</p>
+                <a href="{{ url_for('create_tournament') }}" class="inline-block text-white font-bold text-base hover:underline">
+                    + Neues Turnier →
+                </a>
+            </div>
+            <div class="text-5xl opacity-30">➕</div>
+        </div>
+    </div>
+</div>
+
+<!-- Tournaments List -->
+<div class="bg-white rounded-brand shadow-sm border border-brand-border">
+    <div class="px-6 py-5 border-b border-brand-border bg-brand-bg">
+        <div class="flex justify-between items-center">
+            <h2 class="text-xl font-bold text-brand-text">Meine Turniere</h2>
+            <a href="{{ url_for('create_tournament') }}" class="btn-primary bg-brand-green text-white px-6 py-2.5 rounded-brand text-sm font-semibold">
+                + Neues Turnier
+            </a>
+        </div>
+    </div>
+
+    {% if tournaments %}
+    <div class="divide-y divide-brand-border">
+        {% for tournament in tournaments %}
+        <div class="px-6 py-5 hover:bg-brand-bg transition-all duration-150 card-hover">
+            <div class="flex justify-between items-start gap-4">
+                <div class="flex-1 min-w-0">
+                    <h3 class="text-lg font-semibold text-brand-text mb-2">
+                        <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" class="hover:text-brand-green">
+                            {{ tournament.name }}
+                        </a>
+                    </h3>
+                    <div class="flex flex-wrap gap-4 text-sm text-gray-600 font-medium">
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
+                            </svg>
+                            {{ tournament.num_courts }} Plätze
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            {{ tournament.teams|length }} Teams
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            {{ tournament.created_at|format_datetime }}
+                        </span>
+                        <span class="px-2 py-0.5 rounded {% if tournament.mode == 'round_robin' %}bg-brand-teal text-white{% else %}bg-brand-light-green text-brand-blue{% endif %} text-xs font-semibold">
+                            {% if tournament.mode == 'round_robin' %}Round Robin{% else %}Zeitbasiert{% endif %}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" 
+                       class="btn-secondary text-brand-blue hover:bg-brand-bg px-4 py-2 border-2 border-brand-blue rounded-brand text-sm font-semibold whitespace-nowrap">
+                        Details
+                    </a>
+                    <a href="{{ url_for('tournament_matches', tournament_id=tournament.id) }}" 
+                       class="btn-primary bg-brand-green text-white px-4 py-2 rounded-brand text-sm font-semibold whitespace-nowrap">
+                        Matches
+                    </a>
+                    <a href="{{ url_for('tournament_ranking', tournament_id=tournament.id) }}" 
+                       class="btn-secondary text-brand-teal hover:bg-brand-bg px-4 py-2 border-2 border-brand-teal rounded-brand text-sm font-semibold whitespace-nowrap">
+                        Rangliste
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="px-6 py-16 text-center">
+        <div class="text-6xl mb-4 opacity-20">🎾</div>
+        <p class="text-gray-500 mb-6 text-lg">Sie haben noch keine Turniere erstellt.</p>
+        <a href="{{ url_for('create_tournament') }}" class="btn-primary inline-block bg-brand-green text-white px-8 py-3 rounded-brand font-semibold text-base">
+            Erstellen Sie Ihr erstes Turnier →
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

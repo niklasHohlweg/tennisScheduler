@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}{{ tournament.name }} - Details{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <div class="flex flex-col md:flex-row justify-between md:items-start gap-4">
+        <div>
+            <h1 class="text-3xl font-bold text-[#1A1A1A] mb-2">{{ tournament.name }}</h1>
+            <p class="text-gray-600">Erstellt am {{ tournament.created_at|format_datetime }}</p>
+        </div>
+        <div class="flex gap-3">
+            <a href="{{ url_for('edit_tournament', tournament_id=tournament.id) }}" 
+               class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-[#1F6F78] border-2 border-[#1F6F78] rounded-lg font-semibold hover:bg-[#1F6F78] hover:text-white transition-all duration-150">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Bearbeiten
+            </a>
+            <form method="POST" action="{{ url_for('delete_tournament', tournament_id=tournament.id) }}" 
+                  onsubmit="return confirm('Turnier wirklich löschen?');"
+                  class="inline">
+                <button type="submit" class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-red-600 border-2 border-red-600 rounded-lg font-semibold hover:bg-red-600 hover:text-white transition-all duration-150">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Löschen
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
+        <p class="text-sm text-gray-600 mb-2 font-medium">Gesamte Matches</p>
+        <p class="text-3xl font-bold text-[#0F3A4A]">{{ match_stats.total }}</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
+        <p class="text-sm text-gray-600 mb-2 font-medium">Gespielt</p>
+        <p class="text-3xl font-bold text-[#A8D430]">{{ match_stats.played }}</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
+        <p class="text-sm text-gray-600 mb-2 font-medium">Ausstehend</p>
+        <p class="text-3xl font-bold text-[#1F6F78]">{{ match_stats.pending }}</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
+        <p class="text-sm text-gray-600 mb-2 font-medium">Fortschritt</p>
+        <p class="text-3xl font-bold text-[#0F3A4A]">{{ match_stats.completion_rate }}%</p>
+    </div>
+</div>
+
+<!-- Tournament Info -->
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 mb-8">
+    <h2 class="text-xl font-bold text-[#0F3A4A] mb-4">Turnier-Informationen</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-[#CFEA7A] flex items-center justify-center">
+                <svg class="w-5 h-5 text-[#0F3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-600">Modus</p>
+                <p class="font-semibold text-[#1A1A1A]">
+                    {% if tournament.mode == 'round_robin' %}Round Robin{% else %}Zeitbasiert{% endif %}
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-[#CFEA7A] flex items-center justify-center">
+                <svg class="w-5 h-5 text-[#0F3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-600">Teams</p>
+                <p class="font-semibold text-[#1A1A1A]">{{ tournament.teams|length }}</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-[#CFEA7A] flex items-center justify-center">
+                <svg class="w-5 h-5 text-[#0F3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-600">Plätze</p>
+                <p class="font-semibold text-[#1A1A1A]">{{ tournament.num_courts }}</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-[#CFEA7A] flex items-center justify-center">
+                <svg class="w-5 h-5 text-[#0F3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+            </div>
+            <div>
+                <p class="text-xs text-gray-600">Spieler/Team</p>
+                <p class="font-semibold text-[#1A1A1A]">{{ tournament.players_per_team }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <a href="{{ url_for('tournament_matches', tournament_id=tournament.id) }}" 
+       class="group block p-6 bg-white rounded-xl shadow-sm border-2 border-[#D9D9D9] hover:border-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
+        <div class="text-4xl mb-3">🎾</div>
+        <div class="font-semibold text-[#1A1A1A] group-hover:text-[#A8D430] transition-colors">Matches</div>
+    </a>
+
+    <a href="{{ url_for('tournament_ranking', tournament_id=tournament.id) }}" 
+       class="group block p-6 bg-white rounded-xl shadow-sm border-2 border-[#D9D9D9] hover:border-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
+        <div class="text-4xl mb-3">🏆</div>
+        <div class="font-semibold text-[#1A1A1A] group-hover:text-[#A8D430] transition-colors">Rangliste</div>
+    </a>
+
+    {% if match_stats.total == 0 %}
+    <a href="{{ url_for('tournament_schedule', tournament_id=tournament.id) }}" 
+       class="group block p-6 bg-[#CFEA7A] rounded-xl border-2 border-[#A8D430] hover:bg-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
+        <div class="text-4xl mb-3">📅</div>
+        <div class="font-semibold text-[#0F3A4A] group-hover:text-white transition-colors">Spielplan erstellen</div>
+    </a>
+    {% else %}
+    <a href="{{ url_for('tournament_schedule', tournament_id=tournament.id) }}" 
+       class="group block p-6 bg-white rounded-xl shadow-sm border-2 border-[#D9D9D9] hover:border-[#1F6F78] hover:shadow-lg transition-all duration-150 text-center">
+        <div class="text-4xl mb-3">🔄</div>
+        <div class="font-semibold text-[#1A1A1A] group-hover:text-[#1F6F78] transition-colors">Neu generieren</div>
+    </a>
+    {% endif %}
+
+    <div x-data="{ open: false }" class="relative">
+        <button @click="open = !open" 
+                class="w-full p-6 bg-white rounded-xl shadow-sm border-2 border-[#D9D9D9] hover:border-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
+            <div class="text-4xl mb-3">📥</div>
+            <div class="font-semibold text-[#1A1A1A]">Exportieren</div>
+        </button>
+        
+        <div x-show="open" 
+             @click.away="open = false"
+             x-transition
+             class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg z-10 border-2 border-[#D9D9D9] overflow-hidden">
+            <a href="{{ url_for('export_pdf', tournament_id=tournament.id) }}" 
+               class="block px-4 py-3 text-sm text-[#1A1A1A] hover:bg-[#CFEA7A] transition-colors">
+                📄 PDF
+            </a>
+            <a href="{{ url_for('export_csv', tournament_id=tournament.id) }}" 
+               class="block px-4 py-3 text-sm text-[#1A1A1A] hover:bg-[#CFEA7A] transition-colors border-t border-[#D9D9D9]">
+                📊 CSV
+            </a>
+            <a href="{{ url_for('export_excel', tournament_id=tournament.id) }}" 
+               class="block px-4 py-3 text-sm text-[#1A1A1A] hover:bg-[#CFEA7A] transition-colors border-t border-[#D9D9D9]">
+                📗 Excel
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Top 5 Ranking Preview -->
+{% if ranking %}
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 mb-8">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-bold text-[#0F3A4A]">Top 5 Rangliste</h2>
+        <a href="{{ url_for('tournament_ranking', tournament_id=tournament.id) }}" 
+           class="text-[#A8D430] hover:text-[#0F3A4A] font-semibold text-sm flex items-center gap-1 transition-colors">
+            Alle anzeigen 
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+        </a>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead class="bg-[#0F3A4A]">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Rang</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider">Team</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider">Gespielt</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider">Gewonnen</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider">Punkte</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-[#D9D9D9]">
+                {% for team in ranking[:5] %}
+                <tr class="hover:bg-[#F4F6F5] transition-colors">
+                    <td class="px-4 py-3 text-sm font-medium">
+                        {% if team.position == 1 %}🥇{% elif team.position == 2 %}🥈{% elif team.position == 3 %}🥉{% else %}{{ team.position }}{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-sm font-semibold text-[#1A1A1A]">{{ team.team }}</td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-700">{{ team.matches_played }}</td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-700">{{ team.matches_won }}</td>
+                    <td class="px-4 py-3 text-sm text-center font-bold text-[#A8D430]">{{ team.ranking_points }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Team Distribution -->
+{% if team_distribution %}
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6">
+    <h2 class="text-xl font-bold text-[#0F3A4A] mb-6">Match-Verteilung pro Team</h2>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for team in team_distribution %}
+        <div class="p-5 bg-[#F4F6F5] rounded-lg border border-[#D9D9D9] hover:border-[#A8D430] transition-colors">
+            <div class="font-semibold text-[#0F3A4A] mb-3 text-lg">{{ team.team }}</div>
+            <div class="text-sm text-gray-700 space-y-2">
+                <div class="flex justify-between">
+                    <span>Gesamt:</span>
+                    <span class="font-semibold">{{ team.total_matches }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Gespielt:</span>
+                    <span class="font-semibold text-[#A8D430]">{{ team.played_matches }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Ausstehend:</span>
+                    <span class="font-semibold text-[#1F6F78]">{{ team.pending_matches }}</span>
+                </div>
+                <div class="mt-3 pt-3 border-t border-[#D9D9D9]">
+                    <div class="w-full bg-white rounded-full h-2.5 border border-[#D9D9D9]">
+                        <div class="bg-gradient-to-r from-[#A8D430] to-[#CFEA7A] h-full rounded-full transition-all duration-300" style="width: {{ team.completion_rate }}%"></div>
+                    </div>
+                    <div class="text-xs text-gray-600 mt-1.5 font-medium">{{ team.completion_rate }}% abgeschlossen</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

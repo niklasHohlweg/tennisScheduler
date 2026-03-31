@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Anmelden - JuNi OPEN{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto">
+    <div class="bg-white shadow-lg rounded-brand p-8 border border-brand-border">
+        <div class="text-center mb-8">
+            <div class="text-6xl mb-4 sports-icon">🎾</div>
+            <h2 class="text-3xl font-bold text-brand-text mb-2">
+                Willkommen zurück
+            </h2>
+            <p class="text-gray-600">Melden Sie sich an, um fortzufahren</p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="mb-6">
+                <label for="email" class="block text-sm font-semibold text-brand-text mb-2">
+                    E-Mail Adresse
+                </label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    required
+                    class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green"
+                    placeholder="ihre.email@beispiel.de"
+                    autocomplete="email"
+                >
+            </div>
+
+            <button 
+                type="submit" 
+                class="btn-primary w-full bg-brand-green text-white font-semibold py-3.5 px-4 rounded-brand"
+            >
+                Anmelden →
+            </button>
+        </form>
+
+        <div class="mt-6 p-4 bg-brand-bg rounded-brand border border-brand-border">
+            <h3 class="font-semibold text-brand-text mb-3 flex items-center gap-2">
+                <svg class="w-5 h-5 text-brand-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Wie funktioniert die Anmeldung?
+            </h3>
+            <ul class="text-sm text-gray-700 space-y-2 font-medium">
+                <li class="flex items-start gap-2">
+                    <span class="text-brand-green font-bold mt-0.5">•</span>
+                    <span><strong>Neue Benutzer:</strong> Geben Sie Ihre E-Mail ein - Ihr Konto wird automatisch erstellt</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-brand-green font-bold mt-0.5">•</span>
+                    <span><strong>Bestehende Benutzer:</strong> Geben Sie Ihre E-Mail ein - Sie werden automatisch eingeloggt</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <span class="text-brand-green font-bold mt-0.5">•</span>
+                    <span><strong>Datenschutz:</strong> Wir speichern nur Ihre E-Mail-Adresse</span>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

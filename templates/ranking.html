@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Rangliste - {{ tournament.name }}{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-brand-text mb-2">🏆 Rangliste</h1>
+            <p class="text-gray-600 font-medium">{{ tournament.name }}</p>
+        </div>
+        <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" 
+           class="btn-secondary px-6 py-2.5 border-2 border-brand-blue text-brand-blue rounded-brand font-semibold">
+            ← Zurück
+        </a>
+    </div>
+</div>
+
+{% if not ranking %}
+<div class="bg-white rounded-brand shadow-sm border border-brand-border p-16 text-center">
+    <div class="text-6xl mb-4 opacity-20">🏆</div>
+    <p class="text-gray-500 mb-6 text-lg">Noch keine Daten verfügbar. Matches müssen erst gespielt werden.</p>
+    <a href="{{ url_for('tournament_matches', tournament_id=tournament.id) }}" 
+       class="btn-primary inline-block bg-brand-green text-white px-8 py-3 rounded-brand font-semibold">
+        Zu den Matches →
+    </a>
+</div>
+{% else %}
+
+<!-- Podium (Top 3) -->
+<div class="bg-gradient-to-br from-brand-light-green via-brand-bg to-white rounded-brand shadow-lg border-2 border-brand-green p-8 mb-8">
+    <h2 class="text-center text-2xl font-bold text-brand-text mb-6">Top 3</h2>
+    <div class="flex justify-center items-end space-x-8">
+        {% if ranking|length >= 2 %}
+        <!-- 2nd Place -->
+        <div class="text-center flex-1 max-w-xs">
+            <div class="text-7xl mb-3">🥈</div>
+            <div class="bg-white rounded-brand p-5 shadow-md border-2 border-gray-300 card-hover">
+                <div class="text-xs font-bold text-gray-500 mb-1">2. PLATZ</div>
+                <div class="text-lg font-bold text-brand-text truncate">{{ ranking[1].team }}</div>
+                <div class="text-3xl font-bold text-gray-600 mt-2">{{ ranking[1].ranking_points }}</div>
+                <div class="text-xs text-gray-500 font-semibold">Rangpunkte</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if ranking|length >= 1 %}
+        <!-- 1st Place -->
+        <div class="text-center flex-1 max-w-xs -mt-8">
+            <div class="text-8xl mb-3 animate-bounce">🥇</div>
+            <div class="bg-gradient-to-br from-yellow-200 to-yellow-100 rounded-brand p-6 shadow-xl border-4 border-brand-green card-hover">
+                <div class="text-xs font-bold text-brand-green mb-1">1. PLATZ - CHAMPION</div>
+                <div class="text-xl font-bold text-brand-text truncate">{{ ranking[0].team }}</div>
+                <div class="text-4xl font-bold text-brand-green mt-3">{{ ranking[0].ranking_points }}</div>
+                <div class="text-xs text-gray-700 font-bold">Rangpunkte</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if ranking|length >= 3 %}
+        <!-- 3rd Place -->
+        <div class="text-center flex-1 max-w-xs">
+            <div class="text-7xl mb-3">🥉</div>
+            <div class="bg-white rounded-brand p-5 shadow-md border-2 border-gray-300 card-hover">
+                <div class="text-xs font-bold text-gray-500 mb-1">3. PLATZ</div>
+                <div class="text-lg font-bold text-brand-text truncate">{{ ranking[2].team }}</div>
+                <div class="text-3xl font-bold text-gray-600 mt-2">{{ ranking[2].ranking_points }}</div>
+                <div class="text-xs text-gray-500 font-semibold">Rangpunkte</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Full Ranking Table -->
+<div class="bg-white rounded-brand shadow-sm border border-brand-border overflow-hidden">
+    <div class="px-6 py-5 border-b border-brand-border bg-brand-bg">
+        <h2 class="text-xl font-bold text-brand-text">Komplette Rangliste</h2>
+    </div>
+    
+    <div class="overflow-x-auto">
+        <table class="min-w-full">
+            <thead class="bg-brand-blue text-white">
+                <tr>
+                    <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
+                        Rang
+                    </th>
+                    <th class="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
+                        Team
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Gespielt
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Gewonnen
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Verloren
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Siegquote
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Punkte +
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Punkte -
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Differenz
+                    </th>
+                    <th class="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider">
+                        Rangpunkte
+                    </th>
+                </tr>
+            </thead>
+                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Punkte -
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Differenz
+                    </th>
+                    <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Rangpunkte
+                    </th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-brand-border">
+                {% for team in ranking %}
+                <tr class="hover:bg-brand-bg transition-colors {% if team.position <= 3 %}bg-yellow-50{% endif %}">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-lg font-bold text-brand-text">
+                            {% if team.position == 1 %}<span class="text-3xl">🥇</span>
+                            {% elif team.position == 2 %}<span class="text-3xl">🥈</span>
+                            {% elif team.position == 3 %}<span class="text-3xl">🥉</span>
+                            {% else %}{{ team.position }}.
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-base font-bold text-brand-text">{{ team.team }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-semibold text-gray-900">{{ team.matches_played }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-bold text-brand-green">{{ team.matches_won }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-bold text-red-600">{{ team.matches_lost }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-semibold text-gray-900">{{ "%.1f"|format(team.win_rate) }}%</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-semibold text-gray-900">{{ team.points_for }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-semibold text-gray-900">{{ team.points_against }}</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-sm font-bold {% if team.goal_difference > 0 %}text-brand-green{% elif team.goal_difference < 0 %}text-red-600{% else %}text-gray-900{% endif %}">
+                            {% if team.goal_difference > 0 %}+{% endif %}{{ team.goal_difference }}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="text-lg font-bold text-brand-teal">{{ team.ranking_points }}</div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Info Box -->
+<div class="mt-6 bg-brand-bg border-2 border-brand-border rounded-brand p-6">
+    <h3 class="font-bold text-brand-text mb-3 flex items-center gap-2">
+        <svg class="w-5 h-5 text-brand-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        Punktesystem
+    </h3>
+    <ul class="text-sm text-gray-700 space-y-2 font-medium">
+        <li class="flex items-start gap-2">
+            <span class="text-brand-green font-bold">•</span>
+            <span><strong>Sieg:</strong> 3 Punkte</span>
+        </li>
+        <li class="flex items-start gap-2">
+            <span class="text-brand-green font-bold">•</span>
+            <span><strong>Unentschieden:</strong> 1 Punkt</span>
+        </li>
+        <li class="flex items-start gap-2">
+            <span class="text-brand-green font-bold">•</span>
+            <span><strong>Niederlage:</strong> 0 Punkte</span>
+        </li>
+    </ul>
+</div>
+
+{% endif %}
+{% endblock %}

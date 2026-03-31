@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Spielplan generieren - {{ tournament.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-[#0F3A4A] mb-2">Spielplan generieren</h1>
+        <p class="text-gray-600">{{ tournament.name }}</p>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-8">
+        <!-- Tournament Info -->
+        <div class="mb-8 p-6 bg-[#F4F6F5] rounded-xl border-l-4 border-[#A8D430]">
+            <h3 class="font-bold text-[#0F3A4A] mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Turnier-Konfiguration
+            </h3>
+            <div class="grid md:grid-cols-2 gap-4 text-sm">
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-[#1A1A1A]">Modus:</span> 
+                    <span class="px-3 py-1 bg-[#CFEA7A] text-[#0F3A4A] rounded-full font-medium">
+                        {% if tournament.mode == 'round_robin' %}Round Robin{% else %}Zeitbasiert{% endif %}
+                    </span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-[#1A1A1A]">Teams:</span> 
+                    <span class="text-[#1F6F78] font-bold">{{ tournament.teams|length }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-[#1A1A1A]">Plätze:</span> 
+                    <span class="text-[#1F6F78] font-bold">{{ tournament.num_courts }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-[#1A1A1A]">Spieler/Team:</span> 
+                    <span class="text-[#1F6F78] font-bold">{{ tournament.players_per_team }}</span>
+                </div>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('tournament_schedule', tournament_id=tournament.id) }}">
+            {% if tournament.mode == 'time_based' %}
+            <!-- Time-based options -->
+            <div class="mb-8">
+                <label for="duration" class="block text-sm font-semibold text-[#1A1A1A] mb-2">
+                    Turnierdauer (Minuten) *
+                </label>
+                <input 
+                    type="number" 
+                    id="duration" 
+                    name="duration" 
+                    min="20" 
+                    max="600" 
+                    value="120"
+                    step="20"
+                    required
+                    class="w-full px-4 py-3 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150"
+                >
+                <p class="mt-2 text-sm text-gray-600">Standard: 120 Minuten (2 Stunden)</p>
+            </div>
+
+            <div class="p-6 bg-[#E6F4FF] rounded-xl mb-8 border-l-4 border-[#1F6F78]">
+                <h4 class="font-bold text-[#0F3A4A] mb-2 flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Zeitbasierter Modus
+                </h4>
+                <p class="text-sm text-[#1A1A1A]">
+                    Der Algorithmus plant so viele Matches wie möglich in der angegebenen Zeit.
+                    Jede Runde dauert ca. 20 Minuten (15 Min Spiel + 5 Min Pause).
+                </p>
+            </div>
+            {% else %}
+            <!-- Round Robin info -->
+            <div class="p-6 bg-[#E6F4FF] rounded-xl mb-8 border-l-4 border-[#1F6F78]">
+                <h4 class="font-bold text-[#0F3A4A] mb-2 flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Round Robin Modus
+                </h4>
+                <p class="text-sm text-[#1A1A1A]">
+                    Jedes Team spielt genau einmal gegen jedes andere Team.
+                    <span class="font-bold text-[#1F6F78]">Gesamte Matches: {{ (tournament.teams|length * (tournament.teams|length - 1)) // 2 }}</span>
+                </p>
+            </div>
+            {% endif %}
+
+            <!-- Buttons -->
+            <div class="flex justify-end gap-3">
+                <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" 
+                   class="px-6 py-3 border-2 border-[#D9D9D9] rounded-lg text-[#1A1A1A] font-semibold hover:border-[#1F6F78] hover:bg-[#F4F6F5] transition-all duration-150">
+                    Abbrechen
+                </a>
+                <button 
+                    type="submit" 
+                    class="px-6 py-3 bg-[#A8D430] text-white rounded-lg font-semibold hover:bg-[#8FB828] hover:shadow-lg hover:scale-[1.02] transition-all duration-150"
+                >
+                    🎲 Spielplan generieren
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Team List -->
+    <div class="mt-8 bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6">
+        <h3 class="font-bold text-[#0F3A4A] mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            Teilnehmende Teams
+        </h3>
+        <div class="grid md:grid-cols-3 gap-3">
+            {% for team in tournament.teams %}
+            <div class="px-4 py-3 bg-[#F4F6F5] border border-[#D9D9D9] rounded-lg text-sm font-medium text-[#1A1A1A] hover:border-[#A8D430] transition-colors">
+                🎾 {{ team }}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

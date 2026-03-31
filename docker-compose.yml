@@ -3,13 +3,13 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: juniopen-db
+    container_name: tennis-db
     environment:
       - POSTGRES_USER=tennis_user
       - POSTGRES_PASSWORD=tennis_password
       - POSTGRES_DB=tennis_scheduler
     volumes:
-      - juniopen_postgres_data:/var/lib/postgresql/data
+      - tennis_postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: unless-stopped
     healthcheck:
@@ -21,30 +21,29 @@ services:
   tennis-scheduler:
     build: .
     ports:
-      - "10.20.0.1:8501:8501"
+      - "10.20.0.1:8501:5000"
     environment:
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_HEADLESS=true
+      - FLASK_ENV=production
+      - SECRET_KEY=change-this-secret-key-in-production
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=tennis_scheduler
       - DB_USER=tennis_user
       - DB_PASSWORD=tennis_password
     volumes:
-      - ./data:/app/data
+      - .:/app
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    container_name: juniopen-app
+    container_name: tennis-app
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
 
 volumes:
-  juniopen_postgres_data:
+  tennis_postgres_data:
     driver: local
