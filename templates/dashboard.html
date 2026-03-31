@@ -9,7 +9,7 @@
 </div>
 
 <!-- Stats Cards -->
-<div class="grid md:grid-cols-3 gap-6 mb-8">
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
     <div class="bg-white rounded-brand shadow-sm border border-brand-border p-6 card-hover">
         <div class="flex items-center justify-between">
             <div>
@@ -45,10 +45,10 @@
 
 <!-- Tournaments List -->
 <div class="bg-white rounded-brand shadow-sm border border-brand-border">
-    <div class="px-6 py-5 border-b border-brand-border bg-brand-bg">
-        <div class="flex justify-between items-center">
-            <h2 class="text-xl font-bold text-brand-text">Meine Turniere</h2>
-            <a href="{{ url_for('create_tournament') }}" class="btn-primary bg-brand-green text-white px-6 py-2.5 rounded-brand text-sm font-semibold">
+    <div class="px-4 sm:px-6 py-5 border-b border-brand-border bg-brand-bg">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h2 class="text-lg sm:text-xl font-bold text-brand-text">Meine Turniere</h2>
+            <a href="{{ url_for('create_tournament') }}" class="btn-primary bg-brand-green text-white px-6 py-2.5 rounded-brand text-sm font-semibold w-full sm:w-auto text-center min-h-[44px] flex items-center justify-center">
                 + Neues Turnier
             </a>
         </div>
@@ -57,15 +57,15 @@
     {% if tournaments %}
     <div class="divide-y divide-brand-border">
         {% for tournament in tournaments %}
-        <div class="px-6 py-5 hover:bg-brand-bg transition-all duration-150 card-hover">
-            <div class="flex justify-between items-start gap-4">
-                <div class="flex-1 min-w-0">
-                    <h3 class="text-lg font-semibold text-brand-text mb-2">
+        <div class="px-4 sm:px-6 py-5 hover:bg-brand-bg transition-all duration-150 card-hover">
+            <div class="flex flex-col lg:flex-row justify-between items-start gap-4">
+                <div class="flex-1 min-w-0 w-full">
+                    <h3 class="text-base sm:text-lg font-semibold text-brand-text mb-2">
                         <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" class="hover:text-brand-green">
                             {{ tournament.name }}
                         </a>
                     </h3>
-                    <div class="flex flex-wrap gap-4 text-sm text-gray-600 font-medium">
+                    <div class="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600 font-medium">
                         <span class="flex items-center gap-1">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
@@ -89,13 +89,13 @@
                         </span>
                     </div>
                 </div>
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-row gap-2 w-full lg:w-auto">
                     <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}" 
-                       class="btn-secondary text-brand-blue hover:bg-brand-bg px-4 py-2 border-2 border-brand-blue rounded-brand text-sm font-semibold whitespace-nowrap">
+                       class="btn-secondary text-brand-blue hover:bg-brand-bg px-4 py-2 border-2 border-brand-blue rounded-brand text-sm font-semibold whitespace-nowrap flex-1 lg:flex-initial text-center min-h-[44px] flex items-center justify-center">
                         Details
                     </a>
                     <a href="{{ url_for('tournament_matches', tournament_id=tournament.id) }}" 
-                       class="btn-primary bg-brand-green text-white px-4 py-2 rounded-brand text-sm font-semibold whitespace-nowrap">
+                       class="btn-primary bg-brand-green text-white px-4 py-2 rounded-brand text-sm font-semibold whitespace-nowrap flex-1 lg:flex-initial text-center min-h-[44px] flex items-center justify-center">
                         Matches
                     </a>
                     <a href="{{ url_for('tournament_ranking', tournament_id=tournament.id) }}" 

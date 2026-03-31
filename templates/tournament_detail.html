@@ -3,15 +3,15 @@
 {% block title %}{{ tournament.name }} - Details{% endblock %}
 
 {% block content %}
-<div class="mb-8">
+<div class="mb-6 sm:mb-8">
     <div class="flex flex-col md:flex-row justify-between md:items-start gap-4">
         <div>
-            <h1 class="text-3xl font-bold text-[#1A1A1A] mb-2">{{ tournament.name }}</h1>
-            <p class="text-gray-600">Erstellt am {{ tournament.created_at|format_datetime }}</p>
+            <h1 class="text-2xl sm:text-3xl font-bold text-[#1A1A1A] mb-2">{{ tournament.name }}</h1>
+            <p class="text-sm sm:text-base text-gray-600">Erstellt am {{ tournament.created_at|format_datetime }}</p>
         </div>
-        <div class="flex gap-3">
+        <div class="flex flex-col sm:flex-row gap-3">
             <a href="{{ url_for('edit_tournament', tournament_id=tournament.id) }}" 
-               class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-[#1F6F78] border-2 border-[#1F6F78] rounded-lg font-semibold hover:bg-[#1F6F78] hover:text-white transition-all duration-150">
+               class="inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 bg-white text-[#1F6F78] border-2 border-[#1F6F78] rounded-lg font-semibold hover:bg-[#1F6F78] hover:text-white transition-all duration-150 text-sm sm:text-base min-h-[48px] sm:min-h-[44px]">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
@@ -20,7 +20,7 @@
             <form method="POST" action="{{ url_for('delete_tournament', tournament_id=tournament.id) }}" 
                   onsubmit="return confirm('Turnier wirklich löschen?');"
                   class="inline">
-                <button type="submit" class="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-red-600 border-2 border-red-600 rounded-lg font-semibold hover:bg-red-600 hover:text-white transition-all duration-150">
+                <button type="submit" class="w-full inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-3 sm:py-2.5 bg-white text-red-600 border-2 border-red-600 rounded-lg font-semibold hover:bg-red-600 hover:text-white transition-all duration-150 text-sm sm:text-base min-h-[48px] sm:min-h-[44px]">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -32,32 +32,32 @@
 </div>
 
 <!-- Stats Cards -->
-<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
-        <p class="text-sm text-gray-600 mb-2 font-medium">Gesamte Matches</p>
-        <p class="text-3xl font-bold text-[#0F3A4A]">{{ match_stats.total }}</p>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 hover:shadow-md transition-shadow">
+        <p class="text-xs sm:text-sm text-gray-600 mb-2 font-medium">Gesamte Matches</p>
+        <p class="text-2xl sm:text-3xl font-bold text-[#0F3A4A]">{{ match_stats.total }}</p>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
-        <p class="text-sm text-gray-600 mb-2 font-medium">Gespielt</p>
-        <p class="text-3xl font-bold text-[#A8D430]">{{ match_stats.played }}</p>
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 hover:shadow-md transition-shadow">
+        <p class="text-xs sm:text-sm text-gray-600 mb-2 font-medium">Gespielt</p>
+        <p class="text-2xl sm:text-3xl font-bold text-[#A8D430]">{{ match_stats.played }}</p>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
-        <p class="text-sm text-gray-600 mb-2 font-medium">Ausstehend</p>
-        <p class="text-3xl font-bold text-[#1F6F78]">{{ match_stats.pending }}</p>
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 hover:shadow-md transition-shadow">
+        <p class="text-xs sm:text-sm text-gray-600 mb-2 font-medium">Ausstehend</p>
+        <p class="text-2xl sm:text-3xl font-bold text-[#1F6F78]">{{ match_stats.pending }}</p>
     </div>
 
-    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 hover:shadow-md transition-shadow">
-        <p class="text-sm text-gray-600 mb-2 font-medium">Fortschritt</p>
-        <p class="text-3xl font-bold text-[#0F3A4A]">{{ match_stats.completion_rate }}%</p>
+    <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 hover:shadow-md transition-shadow">
+        <p class="text-xs sm:text-sm text-gray-600 mb-2 font-medium">Fortschritt</p>
+        <p class="text-2xl sm:text-3xl font-bold text-[#0F3A4A]">{{ match_stats.completion_rate }}%</p>
     </div>
 </div>
 
 <!-- Tournament Info -->
-<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-6 mb-8">
-    <h2 class="text-xl font-bold text-[#0F3A4A] mb-4">Turnier-Informationen</h2>
-    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-4 sm:p-6 mb-6 sm:mb-8">
+    <h2 class="text-lg sm:text-xl font-bold text-[#0F3A4A] mb-4">Turnier-Informationen</h2>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-lg bg-[#CFEA7A] flex items-center justify-center">
                 <svg class="w-5 h-5 text-[#0F3A4A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
