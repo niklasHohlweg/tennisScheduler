@@ -11,135 +11,171 @@ from datetime import datetime
 import time
 import uuid
 import hashlib
-from st_supabase_connection import SupabaseConnection
+import psycopg2
+from psycopg2.extras import RealDictCursor, Json
+import os
+import io
+import logging
+from reportlab.lib.pagesizes import A4, letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
 
-# -------------- SUPABASE DATABASE CLASS --------------
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# -------------- POSTGRESQL DATABASE CLASS --------------
 class TennisDatabase:
     def __init__(self):
-        # Initialize Supabase connection
-        self.conn = st.connection(
-            name="supabase_connection",
-            type=SupabaseConnection,
-            ttl="10m"
-        )
+        # Initialize PostgreSQL connection from environment variables
+        self.db_config = {
+            'host': os.getenv('DB_HOST', 'localhost'),
+            'port': os.getenv('DB_PORT', '5432'),
+            'database': os.getenv('DB_NAME', 'tennis_scheduler'),
+            'user': os.getenv('DB_USER', 'tennis_user'),
+            'password': os.getenv('DB_PASSWORD', 'tennis_password')
+        }
+
+    def get_connection(self):
+        """Create a new database connection"""
+        return psycopg2.connect(**self.db_config)
 
     def init_database(self):
-        """Check if tables exist and show setup instructions if not"""
+        """Check if tables exist and database is accessible"""
         try:
-            # Try to check if tables exist by doing a simple query
-            result = self.conn.table("tournaments").select("id").limit(1).execute()
-            # If we get here, tables exist
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM tournaments LIMIT 1")
+            cursor.close()
+            conn.close()
             return True
         except Exception as e:
-            # Tables likely don't exist, show setup instructions
-            st.error("Database tables not found. Please set up your database first.")
-            with st.expander("Database Setup Instructions", expanded=True):
-                st.markdown("""
-                **Please run this SQL in your Supabase SQL Editor to create the required tables:**
-                
-                ```sql
-                -- Enable UUID extension
-                CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-                
-                -- Create tournaments table
-                CREATE TABLE IF NOT EXISTS tournaments (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    name TEXT NOT NULL,
-                    teams JSONB NOT NULL,
-                    num_courts INTEGER NOT NULL,
-                    players_per_team INTEGER NOT NULL,
-                    mode TEXT NOT NULL,
-                    owner_id TEXT NOT NULL,
-                    owner_email TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT NOW()
-                );
-                
-                -- Create matches table
-                CREATE TABLE IF NOT EXISTS matches (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
-                    round_number INTEGER NOT NULL,
-                    court_number INTEGER NOT NULL,
-                    team1 TEXT NOT NULL,
-                    team2 TEXT NOT NULL,
-                    winner TEXT,
-                    team1_score INTEGER DEFAULT 0,
-                    team2_score INTEGER DEFAULT 0,
-                    played_at TIMESTAMP,
-                    start_time_minutes INTEGER,
-                    end_time_minutes INTEGER
-                );
-                
-                -- Create team_stats table
-                CREATE TABLE IF NOT EXISTS team_stats (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tournament_id UUID REFERENCES tournaments(id) ON DELETE CASCADE,
-                    team_name TEXT NOT NULL,
-                    matches_played INTEGER DEFAULT 0,
-                    matches_won INTEGER DEFAULT 0,
-                    matches_lost INTEGER DEFAULT 0,
-                    points_for INTEGER DEFAULT 0,
-                    points_against INTEGER DEFAULT 0,
-                    ranking_points INTEGER DEFAULT 0,
-                    UNIQUE(tournament_id, team_name)
-                );
-                ```
-                
-                **Steps:**
-                1. Go to your Supabase project dashboard
-                2. Navigate to SQL Editor
-                3. Create a new query
-                4. Copy and paste the SQL above
-                5. Run the query
-                6. Refresh this page
-                """)
-            st.stop()
+            st.error(f"Database connection error: {e}")
+            st.info("Please ensure the database is running and properly configured.")
             return False
+    
+    def get_or_create_user(self, email):
+        """Get user by email or create if doesn't exist. Returns (user_dict, is_new_user)"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Check if user exists
+            cursor.execute("""
+                SELECT id, email, created_at, last_login
+                FROM users
+                WHERE email = %s
+            """, (email.lower(),))
+            
+            user = cursor.fetchone()
+            is_new_user = False
+            
+            if user:
+                # Update last login
+                cursor.execute("""
+                    UPDATE users SET last_login = NOW()
+                    WHERE email = %s
+                """, (email.lower(),))
+                conn.commit()
+                user_dict = dict(user)
+                user_dict['id'] = str(user_dict['id'])
+                logging.info(f"User logged in: {email}")
+            else:
+                # Create new user
+                cursor.execute("""
+                    INSERT INTO users (email, created_at, last_login)
+                    VALUES (%s, NOW(), NOW())
+                    RETURNING id, email, created_at, last_login
+                """, (email.lower(),))
+                user = cursor.fetchone()
+                conn.commit()
+                user_dict = dict(user)
+                user_dict['id'] = str(user_dict['id'])
+                is_new_user = True
+                logging.info(f"New user created: {email}")
+            
+            cursor.close()
+            conn.close()
+            return user_dict, is_new_user
+            
+        except Exception as e:
+            st.error(f"Error managing user: {e}")
+            logging.error(f"Error in get_or_create_user: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            return None, False
+    
+    def get_user_stats(self, user_id):
+        """Get statistics for a user"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Get tournament count
+            cursor.execute("""
+                SELECT COUNT(*) as tournament_count
+                FROM tournaments
+                WHERE owner_id = %s
+            """, (user_id,))
+            stats = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            return dict(stats) if stats else {'tournament_count': 0}
+            
+        except Exception as e:
+            logging.error(f"Error in get_user_stats: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return {'tournament_count': 0}
 
     def create_tournament(self, name, teams, num_courts, players_per_team, mode, owner_id, owner_email):
         """Create a tournament for the logged-in user"""
         try:
-            # Insert tournament
-            result = self.conn.table("tournaments").insert({
-                "name": name,
-                "teams": teams,
-                "num_courts": num_courts,
-                "players_per_team": players_per_team,
-                "mode": mode,
-                "owner_id": owner_id,
-                "owner_email": owner_email
-            }).execute()
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-            tournament_id = result.data[0]["id"]
+            # Insert tournament
+            cursor.execute("""
+                INSERT INTO tournaments (name, teams, num_courts, players_per_team, mode, owner_id, owner_email)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (name, Json(teams), num_courts, players_per_team, mode, owner_id, owner_email))
+
+            tournament_id = cursor.fetchone()['id']
 
             # Initialize team stats
-            team_stats_data = []
             for team in teams:
-                team_stats_data.append({
-                    "tournament_id": tournament_id,
-                    "team_name": team,
-                    "matches_played": 0,
-                    "matches_won": 0,
-                    "matches_lost": 0,
-                    "points_for": 0,
-                    "points_against": 0,
-                    "ranking_points": 0
-                })
+                cursor.execute("""
+                    INSERT INTO team_stats (tournament_id, team_name, matches_played, matches_won, 
+                                          matches_lost, points_for, points_against, ranking_points)
+                    VALUES (%s, %s, 0, 0, 0, 0, 0, 0)
+                """, (tournament_id, team))
 
-            self.conn.table("team_stats").insert(team_stats_data).execute()
-            return tournament_id
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return str(tournament_id)
 
         except Exception as e:
             st.error(f"Error creating tournament: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
             return None
 
     def save_matches(self, tournament_id, schedule):
         """Save the match schedule"""
         try:
-            # Clear existing matches for this tournament
-            self.conn.table("matches").delete().eq("tournament_id", tournament_id).execute()
+            conn = self.get_connection()
+            cursor = conn.cursor()
 
-            matches_data = []
+            # Clear existing matches for this tournament
+            cursor.execute("DELETE FROM matches WHERE tournament_id = %s", (tournament_id,))
+
+            # Insert new matches
             for round_num, round_data in enumerate(schedule, 1):
                 if isinstance(round_data, dict):  # Time-based
                     matches = round_data['matches']
@@ -152,174 +188,539 @@ class TennisDatabase:
 
                 for court_num, match in enumerate(matches, 1):
                     team1, team2 = match
-                    matches_data.append({
-                        "tournament_id": tournament_id,
-                        "round_number": round_num,
-                        "court_number": court_num,
-                        "team1": team1,
-                        "team2": team2,
-                        "start_time_minutes": start_time,
-                        "end_time_minutes": end_time
-                    })
+                    cursor.execute("""
+                        INSERT INTO matches (tournament_id, round_number, court_number, team1, team2,
+                                           start_time_minutes, end_time_minutes)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (tournament_id, round_num, court_num, team1, team2, start_time, end_time))
 
-            if matches_data:
-                self.conn.table("matches").insert(matches_data).execute()
+            conn.commit()
+            cursor.close()
+            conn.close()
 
         except Exception as e:
             st.error(f"Error saving matches: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
 
     def get_tournaments(self, owner_id):
         """Get all tournaments for the current user"""
         try:
-            result = self.conn.table("tournaments").select("*").eq("owner_id", owner_id).order("created_at", desc=True).execute()
-            return result.data
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT id, name, teams, num_courts, players_per_team, mode, 
+                       owner_id, owner_email, created_at
+                FROM tournaments
+                WHERE owner_id = %s
+                ORDER BY created_at DESC
+            """, (owner_id,))
+            tournaments = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            # Convert to list of dicts and stringify UUIDs
+            result = []
+            for t in tournaments:
+                t_dict = dict(t)
+                t_dict['id'] = str(t_dict['id'])
+                result.append(t_dict)
+            return result
         except Exception as e:
             st.error(f"Error fetching tournaments: {e}")
+            if 'conn' in locals():
+                conn.close()
             return []
 
     def get_matches(self, tournament_id, owner_id):
         """Get all matches for a tournament (with owner check)"""
         try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
             # First check if tournament belongs to user
-            tournament_check = self.conn.table("tournaments").select("id").eq("id", tournament_id).eq("owner_id", owner_id).execute()
-            if not tournament_check.data:
+            cursor.execute("""
+                SELECT id FROM tournaments WHERE id = %s AND owner_id = %s
+            """, (tournament_id, owner_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
                 return []
 
-            result = self.conn.table("matches").select("*").eq("tournament_id", tournament_id).order("round_number, court_number").execute()
-            return result.data
+            # Get matches
+            cursor.execute("""
+                SELECT id, tournament_id, round_number, court_number, team1, team2, 
+                       winner, team1_score, team2_score, played_at, 
+                       start_time_minutes, end_time_minutes
+                FROM matches
+                WHERE tournament_id = %s
+                ORDER BY round_number, court_number
+            """, (tournament_id,))
+            matches = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            # Convert to list of dicts and stringify UUIDs
+            result = []
+            for m in matches:
+                m_dict = dict(m)
+                m_dict['id'] = str(m_dict['id'])
+                m_dict['tournament_id'] = str(m_dict['tournament_id'])
+                result.append(m_dict)
+            return result
         except Exception as e:
             st.error(f"Error fetching matches: {e}")
+            if 'conn' in locals():
+                conn.close()
             return []
 
     def update_match_result(self, match_id, winner, team1_score, team2_score):
         """Update match result"""
         try:
-            # Update match
-            self.conn.table("matches").update({
-                "winner": winner,
-                "team1_score": team1_score,
-                "team2_score": team2_score,
-                "played_at": datetime.now().isoformat()
-            }).eq("id", match_id).execute()
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-            # Get match info for stats update
-            match_result = self.conn.table("matches").select("tournament_id, team1, team2").eq("id", match_id).execute()
-            if match_result.data:
-                match_info = match_result.data[0]
+            # Update match
+            cursor.execute("""
+                UPDATE matches
+                SET winner = %s, team1_score = %s, team2_score = %s, played_at = NOW()
+                WHERE id = %s
+                RETURNING tournament_id, team1, team2
+            """, (winner, team1_score, team2_score, match_id))
+
+            match_info = cursor.fetchone()
+            if match_info:
                 self._update_team_stats(
-                    match_info["tournament_id"],
-                    match_info["team1"],
-                    match_info["team2"],
+                    cursor,
+                    match_info['tournament_id'],
+                    match_info['team1'],
+                    match_info['team2'],
                     winner,
                     team1_score,
                     team2_score
                 )
 
+            conn.commit()
+            cursor.close()
+            conn.close()
+
         except Exception as e:
             st.error(f"Error updating match result: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
 
-    def _update_team_stats(self, tournament_id, team1, team2, winner, team1_score, team2_score):
+    def _update_team_stats(self, cursor, tournament_id, team1, team2, winner, team1_score, team2_score):
         """Update team statistics"""
-        try:
-            # Update team1 stats
-            team1_stats = self.conn.table("team_stats").select("*").eq("tournament_id", tournament_id).eq("team_name", team1).execute()
-            if team1_stats.data:
-                stats = team1_stats.data[0]
-                new_stats = {
-                    "matches_played": stats["matches_played"] + 1,
-                    "points_for": stats["points_for"] + team1_score,
-                    "points_against": stats["points_against"] + team2_score,
-                    "matches_won": stats["matches_won"] + (1 if winner == team1 else 0),
-                    "matches_lost": stats["matches_lost"] + (1 if winner == team2 else 0),
-                    "ranking_points": stats["ranking_points"] + (3 if winner == team1 else (1 if winner == "Draw" else 0))
-                }
-                self.conn.table("team_stats").update(new_stats).eq("id", stats["id"]).execute()
+        # Update team1 stats
+        cursor.execute("""
+            SELECT * FROM team_stats 
+            WHERE tournament_id = %s AND team_name = %s
+        """, (tournament_id, team1))
+        
+        stats = cursor.fetchone()
+        if stats:
+            cursor.execute("""
+                UPDATE team_stats
+                SET matches_played = matches_played + 1,
+                    points_for = points_for + %s,
+                    points_against = points_against + %s,
+                    matches_won = matches_won + %s,
+                    matches_lost = matches_lost + %s,
+                    ranking_points = ranking_points + %s
+                WHERE tournament_id = %s AND team_name = %s
+            """, (
+                team1_score, 
+                team2_score,
+                1 if winner == team1 else 0,
+                1 if winner == team2 else 0,
+                3 if winner == team1 else (1 if winner == "Draw" else 0),
+                tournament_id,
+                team1
+            ))
 
-            # Update team2 stats
-            team2_stats = self.conn.table("team_stats").select("*").eq("tournament_id", tournament_id).eq("team_name", team2).execute()
-            if team2_stats.data:
-                stats = team2_stats.data[0]
-                new_stats = {
-                    "matches_played": stats["matches_played"] + 1,
-                    "points_for": stats["points_for"] + team2_score,
-                    "points_against": stats["points_against"] + team1_score,
-                    "matches_won": stats["matches_won"] + (1 if winner == team2 else 0),
-                    "matches_lost": stats["matches_lost"] + (1 if winner == team1 else 0),
-                    "ranking_points": stats["ranking_points"] + (3 if winner == team2 else (1 if winner == "Draw" else 0))
-                }
-                self.conn.table("team_stats").update(new_stats).eq("id", stats["id"]).execute()
-
-        except Exception as e:
-            st.error(f"Error updating team stats: {e}")
+        # Update team2 stats
+        cursor.execute("""
+            SELECT * FROM team_stats 
+            WHERE tournament_id = %s AND team_name = %s
+        """, (tournament_id, team2))
+        
+        stats = cursor.fetchone()
+        if stats:
+            cursor.execute("""
+                UPDATE team_stats
+                SET matches_played = matches_played + 1,
+                    points_for = points_for + %s,
+                    points_against = points_against + %s,
+                    matches_won = matches_won + %s,
+                    matches_lost = matches_lost + %s,
+                    ranking_points = ranking_points + %s
+                WHERE tournament_id = %s AND team_name = %s
+            """, (
+                team2_score,
+                team1_score,
+                1 if winner == team2 else 0,
+                1 if winner == team1 else 0,
+                3 if winner == team2 else (1 if winner == "Draw" else 0),
+                tournament_id,
+                team2
+            ))
 
     def get_ranking(self, tournament_id, owner_id):
         """Get tournament ranking"""
         try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+
             # Check if tournament belongs to user
-            tournament_check = self.conn.table("tournaments").select("id").eq("id", tournament_id).eq("owner_id", owner_id).execute()
-            if not tournament_check.data:
+            cursor.execute("""
+                SELECT id FROM tournaments WHERE id = %s AND owner_id = %s
+            """, (tournament_id, owner_id))
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
                 return []
 
-            result = self.conn.table("team_stats").select("*").eq("tournament_id", tournament_id).order("ranking_points", desc=True).order("matches_won", desc=True).execute()
+            # Get team stats
+            cursor.execute("""
+                SELECT team_name, matches_played, matches_won, matches_lost,
+                       points_for, points_against, ranking_points
+                FROM team_stats
+                WHERE tournament_id = %s
+                ORDER BY ranking_points DESC, matches_won DESC
+            """, (tournament_id,))
             
+            stats_list = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
             ranking = []
-            for i, stats in enumerate(result.data, 1):
-                win_rate = (stats["matches_won"] / stats["matches_played"] * 100) if stats["matches_played"] > 0 else 0
-                goal_diff = stats["points_for"] - stats["points_against"]
+            for i, stats in enumerate(stats_list, 1):
+                win_rate = (stats['matches_won'] / stats['matches_played'] * 100) if stats['matches_played'] > 0 else 0
+                goal_diff = stats['points_for'] - stats['points_against']
                 
                 ranking.append({
                     "position": i,
-                    "team": stats["team_name"],
-                    "matches_played": stats["matches_played"],
-                    "matches_won": stats["matches_won"],
-                    "matches_lost": stats["matches_lost"],
+                    "team": stats['team_name'],
+                    "matches_played": stats['matches_played'],
+                    "matches_won": stats['matches_won'],
+                    "matches_lost": stats['matches_lost'],
                     "win_rate": win_rate,
-                    "points_for": stats["points_for"],
-                    "points_against": stats["points_against"],
+                    "points_for": stats['points_for'],
+                    "points_against": stats['points_against'],
                     "goal_difference": goal_diff,
-                    "ranking_points": stats["ranking_points"]
+                    "ranking_points": stats['ranking_points']
                 })
             
             return ranking
 
         except Exception as e:
             st.error(f"Error fetching ranking: {e}")
+            logging.error(f"Error in get_ranking: {e}")
+            if 'conn' in locals():
+                conn.close()
             return []
+    
+    def delete_tournament(self, tournament_id, owner_id):
+        """Delete a tournament (with ownership check)"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # Verify ownership
+            cursor.execute("""
+                SELECT id FROM tournaments WHERE id = %s AND owner_id = %s
+            """, (tournament_id, owner_id))
+            
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return False
+            
+            # Delete tournament (cascades to matches and team_stats)
+            cursor.execute("DELETE FROM tournaments WHERE id = %s", (tournament_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            logging.info(f"Tournament {tournament_id} deleted by {owner_id}")
+            return True
+            
+        except Exception as e:
+            st.error(f"Error deleting tournament: {e}")
+            logging.error(f"Error in delete_tournament: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            return False
+    
+    def update_tournament(self, tournament_id, owner_id, name):
+        """Update tournament name"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE tournaments SET name = %s
+                WHERE id = %s AND owner_id = %s
+            """, (name, tournament_id, owner_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            st.error(f"Error updating tournament: {e}")
+            logging.error(f"Error in update_tournament: {e}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            return False
+    
+    def search_tournaments(self, owner_id, search_term=None, status=None, date_from=None, date_to=None):
+        """Search tournaments with filters"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            query = """
+                SELECT id, name, teams, num_courts, players_per_team, mode, 
+                       owner_id, owner_email, created_at
+                FROM tournaments
+                WHERE owner_id = %s
+            """
+            params = [owner_id]
+            
+            if search_term:
+                query += " AND LOWER(name) LIKE LOWER(%s)"
+                params.append(f"%{search_term}%")
+            
+            if date_from:
+                query += " AND created_at >= %s"
+                params.append(date_from)
+            
+            if date_to:
+                query += " AND created_at <= %s"
+                params.append(date_to)
+            
+            query += " ORDER BY created_at DESC"
+            
+            cursor.execute(query, params)
+            tournaments = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            result = []
+            for t in tournaments:
+                t_dict = dict(t)
+                t_dict['id'] = str(t_dict['id'])
+                
+                # Apply status filter if provided
+                if status:
+                    matches = self.get_matches(t_dict['id'], owner_id)
+                    if matches:
+                        played = len([m for m in matches if m['winner']])
+                        total = len(matches)
+                        
+                        if status == "completed" and played == total:
+                            result.append(t_dict)
+                        elif status == "active" and 0 < played < total:
+                            result.append(t_dict)
+                        elif status == "not_started" and played == 0:
+                            result.append(t_dict)
+                    elif status == "not_started":
+                        result.append(t_dict)
+                else:
+                    result.append(t_dict)
+            
+            return result
+            
+        except Exception as e:
+            st.error(f"Error searching tournaments: {e}")
+            logging.error(f"Error in search_tournaments: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+    
+    def get_match_history(self, tournament_id, owner_id, team_name=None):
+        """Get detailed match history"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Verify ownership
+            cursor.execute("""
+                SELECT id FROM tournaments WHERE id = %s AND owner_id = %s
+            """, (tournament_id, owner_id))
+            
+            if not cursor.fetchone():
+                cursor.close()
+                conn.close()
+                return []
+            
+            query = """
+                SELECT id, round_number, court_number, team1, team2,
+                       winner, team1_score, team2_score, played_at,
+                       start_time_minutes, end_time_minutes
+                FROM matches
+                WHERE tournament_id = %s
+            """
+            params = [tournament_id]
+            
+            if team_name:
+                query += " AND (team1 = %s OR team2 = %s)"
+                params.extend([team_name, team_name])
+            
+            query += " ORDER BY played_at DESC NULLS LAST, round_number, court_number"
+            
+            cursor.execute(query, params)
+            matches = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            
+            result = []
+            for m in matches:
+                m_dict = dict(m)
+                m_dict['id'] = str(m_dict['id'])
+                result.append(m_dict)
+            return result
+            
+        except Exception as e:
+            st.error(f"Error fetching match history: {e}")
+            logging.error(f"Error in get_match_history: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return []
+    
+    def get_tournament_statistics(self, tournament_id, owner_id):
+        """Get detailed tournament statistics"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Verify ownership
+            cursor.execute("""
+                SELECT * FROM tournaments WHERE id = %s AND owner_id = %s
+            """, (tournament_id, owner_id))
+            
+            tournament = cursor.fetchone()
+            if not tournament:
+                cursor.close()
+                conn.close()
+                return None
+            
+            # Get match statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_matches,
+                    COUNT(CASE WHEN winner IS NOT NULL THEN 1 END) as played_matches,
+                    AVG(CASE WHEN winner IS NOT NULL THEN team1_score + team2_score END) as avg_total_score,
+                    MAX(team1_score + team2_score) as highest_score,
+                    MIN(CASE WHEN winner IS NOT NULL THEN team1_score + team2_score END) as lowest_score
+                FROM matches
+                WHERE tournament_id = %s
+            """, (tournament_id,))
+            
+            match_stats = cursor.fetchone()
+            
+            # Get team statistics
+            cursor.execute("""
+                SELECT 
+                    team_name,
+                    matches_played,
+                    matches_won,
+                    matches_lost,
+                    points_for,
+                    points_against,
+                    ranking_points,
+                    CASE 
+                        WHEN matches_played > 0 THEN CAST(matches_won AS FLOAT) / matches_played * 100 
+                        ELSE 0 
+                    END as win_percentage
+                FROM team_stats
+                WHERE tournament_id = %s
+                ORDER BY ranking_points DESC
+            """, (tournament_id,))
+            
+            team_stats = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return {
+                'tournament': dict(tournament),
+                'match_stats': dict(match_stats) if match_stats else {},
+                'team_stats': [dict(ts) for ts in team_stats]
+            }
+            
+        except Exception as e:
+            st.error(f"Error fetching tournament statistics: {e}")
+            logging.error(f"Error in get_tournament_statistics: {e}")
+            if 'conn' in locals():
+                conn.close()
+            return None
 
 # -------------- USER MANAGEMENT --------------
 def init_user_session():
-    """Initialize simple user session management"""
+    """Initialize user session management"""
     if 'user_id' not in st.session_state:
         st.session_state.user_id = None
-        st.session_state.user_name = None
         st.session_state.user_email = None
 
 def require_login():
-    """Simple login system with persistent user IDs"""
-    st.title("Tennis Turnier System")
+    """Improved login system - email only"""
+    st.title("🎾 Tennis Turnier System")
     
     if st.session_state.user_id is None:
-        st.info("Bitte geben Sie Ihre Daten ein, um fortzufahren.")
+        st.info("Bitte geben Sie Ihre E-Mail-Adresse ein, um fortzufahren.")
         
         with st.form("login_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                name = st.text_input("Name", placeholder="Ihr Name")
-            with col2:
-                email = st.text_input("E-Mail", placeholder="ihre.email@beispiel.de")
+            email = st.text_input(
+                "E-Mail Adresse", 
+                placeholder="ihre.email@beispiel.de",
+                help="Wenn Sie neu sind, wird automatisch ein Konto erstellt."
+            )
             
-            submitted = st.form_submit_button("Anmelden", type="primary")
+            submitted = st.form_submit_button("Anmelden", type="primary", use_container_width=True)
             
-            if submitted and name.strip() and email.strip():
-                # Create consistent user ID based on email
-                user_id = hashlib.md5(email.strip().lower().encode()).hexdigest()
+            if submitted and email.strip():
+                # Validate email format
+                if '@' not in email or '.' not in email.split('@')[1]:
+                    st.error("Bitte geben Sie eine gültige E-Mail-Adresse ein.")
+                    st.stop()
                 
-                st.session_state.user_id = user_id
-                st.session_state.user_name = name.strip()
-                st.session_state.user_email = email.strip().lower()
-                st.rerun()
+                with st.spinner("Anmeldung läuft..."):
+                    db = TennisDatabase()
+                    user, is_new_user = db.get_or_create_user(email.strip())
+                    
+                    if user:
+                        st.session_state.user_id = user['id']
+                        st.session_state.user_email = user['email']
+                        
+                        # Show welcome message
+                        if is_new_user:
+                            st.success(f"Willkommen! Ihr Konto wurde erstellt.")
+                        else:
+                            st.success(f"Willkommen zurück!")
+                        
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("Fehler bei der Anmeldung. Bitte versuchen Sie es erneut.")
             elif submitted:
-                st.error("Bitte füllen Sie beide Felder aus.")
+                st.error("Bitte geben Sie eine E-Mail-Adresse ein.")
+        
+        # Add some info text
+        st.markdown("---")
+        st.markdown("""
+        ### Wie funktioniert die Anmeldung?
+        - **Neue Benutzer**: Geben Sie Ihre E-Mail ein - Ihr Konto wird automatisch erstellt
+        - **Bestehende Benutzer**: Geben Sie Ihre E-Mail ein - Sie werden automatisch eingeloggt
+        - **Datenschutz**: Wir speichern nur Ihre E-Mail-Adresse
+        
+        Ihre Turniere sind mit Ihrer E-Mail-Adresse verknüpft und bleiben zwischen den Sitzungen erhalten.
+        """)
         
         st.stop()
 
@@ -536,6 +937,256 @@ def show_detailed_team_overview(tournament_id, matches, teams):
     df_overview = pd.DataFrame(overview)
     st.dataframe(df_overview, hide_index=True, use_container_width=True)
 
+# -------------- EXPORT AND VISUALIZATION FUNCTIONS --------------
+def export_tournament_to_csv(tournament_id, user_id, tournament_name):
+    """Export tournament data to CSV"""
+    db = TennisDatabase()
+    
+    # Get all data
+    matches = db.get_matches(tournament_id, user_id)
+    ranking = db.get_ranking(tournament_id, user_id)
+    
+    # Create CSV buffer
+    output = io.StringIO()
+    
+    # Write tournament info
+    output.write(f"Tournament: {tournament_name}\n")
+    output.write(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+    
+    # Write matches
+    output.write("MATCHES\n")
+    if matches:
+        df_matches = pd.DataFrame(matches)
+        df_matches.to_csv(output, index=False)
+    output.write("\n\n")
+    
+    # Write rankings
+    output.write("RANKINGS\n")
+    if ranking:
+        df_ranking = pd.DataFrame(ranking)
+        df_ranking.to_csv(output, index=False)
+    
+    return output.getvalue()
+
+def export_tournament_to_excel(tournament_id, user_id, tournament_name):
+    """Export tournament data to Excel"""
+    db = TennisDatabase()
+    
+    # Get all data
+    matches = db.get_matches(tournament_id, user_id)
+    ranking = db.get_ranking(tournament_id, user_id)
+    
+    # Create Excel file in memory
+    output = io.BytesIO()
+    
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Write matches
+        if matches:
+            df_matches = pd.DataFrame(matches)
+            df_matches.to_excel(writer, sheet_name='Matches', index=False)
+        
+        # Write rankings
+        if ranking:
+            df_ranking = pd.DataFrame(ranking)
+            df_ranking.to_excel(writer, sheet_name='Rankings', index=False)
+        
+        # Write summary
+        summary_data = {
+            'Tournament Name': [tournament_name],
+            'Export Date': [datetime.now().strftime('%Y-%m-%d %H:%M:%S')],
+            'Total Matches': [len(matches) if matches else 0],
+            'Played Matches': [len([m for m in matches if m['winner']]) if matches else 0],
+            'Teams': [len(ranking) if ranking else 0]
+        }
+        df_summary = pd.DataFrame(summary_data)
+        df_summary.to_excel(writer, sheet_name='Summary', index=False)
+    
+    output.seek(0)
+    return output.getvalue()
+
+def export_tournament_to_pdf(tournament_id, user_id, tournament_name):
+    """Export tournament data to PDF"""
+    db = TennisDatabase()
+    matches = db.get_matches(tournament_id, user_id)
+    ranking = db.get_ranking(tournament_id, user_id)
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title = Paragraph(f"<b>{tournament_name}</b>", styles['Title'])
+    story.append(title)
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Date
+    date_text = Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal'])
+    story.append(date_text)
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Rankings Table
+    if ranking:
+        story.append(Paragraph("<b>Rankings</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        
+        rank_data = [['Pos', 'Team', 'Played', 'Won', 'Lost', 'Points']]
+        for r in ranking[:10]:  # Top 10
+            rank_data.append([
+                str(r['position']),
+                r['team'][:20],
+                str(r['matches_played']),
+                str(r['matches_won']),
+                str(r['matches_lost']),
+                str(r['ranking_points'])
+            ])
+        
+        rank_table = Table(rank_data)
+        rank_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(rank_table)
+        story.append(Spacer(1, 0.3*inch))
+    
+    # Matches Table
+    if matches:
+        story.append(Paragraph("<b>Recent Matches</b>", styles['Heading2']))
+        story.append(Spacer(1, 0.1*inch))
+        
+        match_data = [['Rnd', 'Court', 'Team 1', 'Team 2', 'Score', 'Winner']]
+        for m in matches[:20]:  # First 20 matches
+            score = f"{m['team1_score']}:{m['team2_score']}" if m['winner'] else "TBD"
+            winner = m['winner'][:15] if m['winner'] else "-"
+            match_data.append([
+                str(m['round_number']),
+                str(m['court_number']),
+                m['team1'][:15],
+                m['team2'][:15],
+                score,
+                winner
+            ])
+        
+        match_table = Table(match_data)
+        match_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(match_table)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def show_advanced_analytics(tournament_id, user_id):
+    """Show advanced analytics with charts"""
+    db = TennisDatabase()
+    stats = db.get_tournament_statistics(tournament_id, user_id)
+    
+    if not stats:
+        st.info("No statistics available.")
+        return
+    
+    st.subheader("📊 Advanced Analytics")
+    
+    team_stats = stats['team_stats']
+    match_stats = stats['match_stats']
+    
+    # Overview metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Matches", match_stats.get('total_matches', 0))
+    with col2:
+        st.metric("Played", match_stats.get('played_matches', 0))
+    with col3:
+        avg_score = match_stats.get('avg_total_score', 0)
+        st.metric("Avg Total Score", f"{avg_score:.1f}" if avg_score else "0")
+    with col4:
+        st.metric("Highest Score", match_stats.get('highest_score', 0) or 0)
+    
+    # Charts
+    if team_stats:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Win percentage chart
+            df_wins = pd.DataFrame(team_stats)
+            fig_wins = px.bar(
+                df_wins,
+                x='team_name',
+                y='win_percentage',
+                title='Win Percentage by Team',
+                labels={'team_name': 'Team', 'win_percentage': 'Win %'},
+                color='win_percentage',
+                color_continuous_scale='RdYlGn'
+            )
+            fig_wins.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_wins, use_container_width=True)
+        
+        with col2:
+            # Points scored vs conceded
+            df_points = pd.DataFrame(team_stats)
+            fig_points = go.Figure()
+            fig_points.add_trace(go.Bar(
+                name='Points For',
+                x=df_points['team_name'],
+                y=df_points['points_for'],
+                marker_color='lightblue'
+            ))
+            fig_points.add_trace(go.Bar(
+                name='Points Against',
+                x=df_points['team_name'],
+                y=df_points['points_against'],
+                marker_color='lightcoral'
+            ))
+            fig_points.update_layout(
+                title='Points For vs Against',
+                xaxis_tickangle=-45,
+                barmode='group',
+                xaxis_title='Team',
+                yaxis_title='Points'
+            )
+            st.plotly_chart(fig_points, use_container_width=True)
+        
+        # Ranking points distribution
+        fig_rank = px.pie(
+            df_points,
+            values='ranking_points',
+            names='team_name',
+            title='Ranking Points Distribution'
+        )
+        st.plotly_chart(fig_rank, use_container_width=True)
+        
+        # Performance table
+        st.subheader("Detailed Performance Metrics")
+        perf_data = []
+        for ts in team_stats:
+            goal_diff = ts['points_for'] - ts['points_against']
+            perf_data.append({
+                'Team': ts['team_name'],
+                'Win %': f"{ts['win_percentage']:.1f}%",
+                'Matches': ts['matches_played'],
+                'W-L': f"{ts['matches_won']}-{ts['matches_lost']}",
+                'Goals': f"{ts['points_for']}-{ts['points_against']}",
+                'Goal Diff': f"{goal_diff:+d}",
+                'Rank Points': ts['ranking_points']
+            })
+        
+        df_perf = pd.DataFrame(perf_data)
+        st.dataframe(df_perf, hide_index=True, use_container_width=True)
+
 # -------------- MAIN APPLICATION FUNCTIONS --------------
 def show_user_dashboard(user_id):
     """Show user dashboard with tournament overview"""
@@ -575,7 +1226,8 @@ def show_user_dashboard(user_id):
     # Recent tournaments
     st.subheader("Ihre Turniere")
     for t in tournaments[:5]:  # Show last 5 tournaments
-        with st.expander(f"{t['name']} ({t['created_at'][:10]})", expanded=False):
+        created_date = t['created_at'].strftime('%Y-%m-%d') if hasattr(t['created_at'], 'strftime') else str(t['created_at'])[:10]
+        with st.expander(f"{t['name']} ({created_date})", expanded=False):
             matches = db.get_matches(t['id'], user_id)
             played_matches = len([m for m in matches if m['winner']]) if matches else 0
             total_matches = len(matches) if matches else 0
@@ -682,7 +1334,34 @@ def create_new_tournament(user_id, user_email):
 def manage_tournaments(user_id):
     st.header("Turnier Verwaltung")
     db = TennisDatabase()
-    tournaments = db.get_tournaments(user_id)
+    
+    # Search and filter section
+    with st.expander("🔍 Suchen & Filtern", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            search_term = st.text_input("Turnier suchen", placeholder="Name eingeben...")
+        with col2:
+            status_filter = st.selectbox("Status", ["Alle", "Nicht gestartet", "Aktiv", "Abgeschlossen"])
+        with col3:
+            date_from = st.date_input("Von Datum", value=None)
+        
+        status_map = {
+            "Alle": None,
+            "Nicht gestartet": "not_started",
+            "Aktiv": "active",
+            "Abgeschlossen": "completed"
+        }
+        
+        tournaments = db.search_tournaments(
+            user_id,
+            search_term if search_term else None,
+            status_map[status_filter],
+            date_from if date_from else None,
+            None
+        )
+    
+    if not tournaments:
+        tournaments = db.get_tournaments(user_id)
     
     if not tournaments:
         st.info("Noch keine Turniere erstellt. Gehe zu 'Neues Turnier'.")
@@ -691,7 +1370,7 @@ def manage_tournaments(user_id):
     # Show user's tournament summary
     col1, col2 = st.columns([2, 1])
     with col2:
-        st.metric("Ihre Turniere", len(tournaments))
+        st.metric("Gefundene Turniere", len(tournaments))
         active_count = 0
         for t in tournaments:
             matches = db.get_matches(t['id'], user_id)
@@ -702,14 +1381,61 @@ def manage_tournaments(user_id):
         st.metric("Aktive Turniere", active_count)
 
     with col1:
-        tournament_options = {f"{t['name']} ({t['created_at'][:10]})": t['id'] for t in tournaments}
+        tournament_options = {f"{t['name']} ({t['created_at'].strftime('%Y-%m-%d') if hasattr(t['created_at'], 'strftime') else str(t['created_at'])[:10]})": t['id'] for t in tournaments}
         selected_name = st.selectbox("Turnier auswählen:", list(tournament_options.keys()))
     
     if selected_name:
         tournament_id = tournament_options[selected_name]
         tournament = next(t for t in tournaments if t['id'] == tournament_id)
         
-        st.subheader(f"{tournament['name']}")
+        # Tournament header with actions
+        col_name, col_actions = st.columns([2, 1])
+        with col_name:
+            st.subheader(f"{tournament['name']}")
+        with col_actions:
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("✏️ Umbenennen", key="rename_btn"):
+                    st.session_state.show_rename = True
+            with col_btn2:
+                if st.button("🗑️ Löschen", key="delete_btn", type="secondary"):
+                    st.session_state.show_delete_confirm = True
+        
+        # Rename dialog
+        if st.session_state.get('show_rename', False):
+            with st.form("rename_form"):
+                new_name = st.text_input("Neuer Name", value=tournament['name'])
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.form_submit_button("Speichern", type="primary"):
+                        if db.update_tournament(tournament_id, user_id, new_name):
+                            st.success("Turnier umbenannt!")
+                            st.session_state.show_rename = False
+                            st.rerun()
+                with col2:
+                    if st.form_submit_button("Abbrechen"):
+                        st.session_state.show_rename = False
+                        st.rerun()
+        
+        # Delete confirmation dialog
+        if st.session_state.get('show_delete_confirm', False):
+            st.warning("⚠️ Warnung: Diese Aktion kann nicht rückgängig gemacht werden!")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("Ja, Turnier löschen", type="primary", key="confirm_delete"):
+                    if db.delete_tournament(tournament_id, user_id):
+                        st.success("Turnier gelöscht!")
+                        st.session_state.show_delete_confirm = False
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Fehler beim Löschen.")
+            with col2:
+                if st.button("Abbrechen", key="cancel_delete"):
+                    st.session_state.show_delete_confirm = False
+                    st.rerun()
+        
+        st.markdown("---")
         
         # Tournament info
         col1, col2, col3, col4 = st.columns(4)
@@ -729,10 +1455,43 @@ def manage_tournaments(user_id):
             st.progress(progress)
             st.caption(f"Fortschritt: {played_matches}/{total_matches} Matches gespielt ({progress*100:.0f}%)")
             
+            # Export buttons
+            st.markdown("### 📥 Export")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                csv_data = export_tournament_to_csv(tournament_id, user_id, tournament['name'])
+                st.download_button(
+                    label="📄 Export CSV",
+                    data=csv_data,
+                    file_name=f"{tournament['name']}_export.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            with col2:
+                excel_data = export_tournament_to_excel(tournament_id, user_id, tournament['name'])
+                st.download_button(
+                    label="📊 Export Excel",
+                    data=excel_data,
+                    file_name=f"{tournament['name']}_export.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with col3:
+                pdf_data = export_tournament_to_pdf(tournament_id, user_id, tournament['name'])
+                st.download_button(
+                    label="📑 Export PDF",
+                    data=pdf_data,
+                    file_name=f"{tournament['name']}_export.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            
+            st.markdown("---")
+            
             show_team_match_overview(tournament_id, matches, tournament['teams'])
             st.markdown("---")
             
-            tab1, tab2, tab3, tab4 = st.tabs(["Ergebnisse eintragen", "Spielplan", "Aktuelles Ranking", "Team-Übersicht"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Ergebnisse eintragen", "Spielplan", "Aktuelles Ranking", "Team-Übersicht", "Analytics"])
             with tab1: 
                 enter_match_results(tournament_id, matches, user_id)
             with tab2: 
@@ -741,6 +1500,8 @@ def manage_tournaments(user_id):
                 show_tournament_ranking(tournament_id, user_id)
             with tab4: 
                 show_detailed_team_overview(tournament_id, matches, tournament['teams'])
+            with tab5:
+                show_advanced_analytics(tournament_id, user_id)
         else:
             st.info("Keine Matches gefunden.")
 
@@ -848,7 +1609,8 @@ def show_rankings(user_id):
         return
 
     for t in tournaments:
-        with st.expander(f"{t['name']} ({t['created_at'][:10]})", expanded=False):
+        created_date = t['created_at'].strftime('%Y-%m-%d') if hasattr(t['created_at'], 'strftime') else str(t['created_at'])[:10]
+        with st.expander(f"{t['name']} ({created_date})", expanded=False):
             ranking = db.get_ranking(t['id'], user_id)
             if ranking and any(x['matches_played'] > 0 for x in ranking):
                 played_teams = [x for x in ranking if x['matches_played'] > 0]
@@ -897,9 +1659,10 @@ def show_statistics(user_id):
         champion = "TBD"
         if ranking and ranking[0]['matches_played'] > 0:
             champion = ranking[0]['team']
+        created_date = t['created_at'].strftime('%Y-%m-%d') if hasattr(t['created_at'], 'strftime') else str(t['created_at'])[:10]
         rows.append({
             "Turnier": t['name'],
-            "Datum": t['created_at'][:10],
+            "Datum": created_date,
             "Modus": t['mode'],
             "Teams": len(t['teams']),
             "Plätze": t['num_courts'],
@@ -912,7 +1675,16 @@ def show_statistics(user_id):
 
 # -------------- MAIN APPLICATION --------------
 def main():
-    st.set_page_config(page_title="Tennis Turnier System", page_icon="🎾", layout="wide")
+    st.set_page_config(
+        page_title="Tennis Turnier System", 
+        page_icon="🎾", 
+        layout="wide",
+        menu_items={
+            'Get Help': None,
+            'Report a bug': None,
+            'About': None
+        }
+    )
 
     # Initialize user session and database
     init_user_session()
@@ -924,19 +1696,22 @@ def main():
         db.init_database()
         st.session_state.db_initialized = True
     
-    st.caption(f"Angemeldet als **{st.session_state.user_name}** ({st.session_state.user_email})")
+    # User info header
+    db = TennisDatabase()
+    user_stats = db.get_user_stats(st.session_state.user_id)
     
-    # Logout button
-    with st.sidebar:
-        if st.button("Abmelden", type="secondary"):
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.caption(f"👤 Angemeldet als **{st.session_state.user_email}** | 🏆 {user_stats.get('tournament_count', 0)} Turniere")
+    with col2:
+        if st.button("🚪 Abmelden", type="secondary", use_container_width=True):
             st.session_state.user_id = None
-            st.session_state.user_name = None
             st.session_state.user_email = None
             st.rerun()
     
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Dashboard", "Neues Turnier", "Turniere verwalten", "Ranking", "Statistiken"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "➕ Neues Turnier", "⚙️ Turniere verwalten", "🏆 Ranking", "📈 Statistiken"])
     with tab1:
         show_user_dashboard(st.session_state.user_id)
     with tab2:
