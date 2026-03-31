@@ -123,6 +123,23 @@ def create_app(config_name='default'):
                 players_per_team = int(request.form.get('players_per_team', 4))
                 mode = request.form.get('mode', 'time_based')
                 
+                # Validate input ranges
+                if not name:
+                    flash('Turniername ist erforderlich.', 'error')
+                    return redirect(url_for('create_tournament'))
+                
+                if num_teams < 2 or num_teams > 100:
+                    flash('Anzahl der Teams muss zwischen 2 und 100 liegen.', 'error')
+                    return redirect(url_for('create_tournament'))
+                
+                if num_courts < 1 or num_courts > 50:
+                    flash('Anzahl der Plätze muss zwischen 1 und 50 liegen.', 'error')
+                    return redirect(url_for('create_tournament'))
+                
+                if players_per_team < 2 or players_per_team > 10:
+                    flash('Spieler pro Team muss zwischen 2 und 10 liegen.', 'error')
+                    return redirect(url_for('create_tournament'))
+                
                 # Get team names
                 teams = []
                 for i in range(num_teams):
@@ -131,6 +148,11 @@ def create_app(config_name='default'):
                     if not team_name:
                         team_name = f'Team {i+1}'
                     teams.append(team_name)
+                
+                # Validate team name uniqueness
+                if len(teams) != len(set(teams)):
+                    flash('Teamnamen müssen eindeutig sein.', 'error')
+                    return redirect(url_for('create_tournament'))
                 
                 if len(teams) < 2:
                     flash('Mindestens 2 Teams erforderlich.', 'error')
@@ -202,17 +224,22 @@ def create_app(config_name='default'):
                     duration = int(request.form.get('duration', 120))
                     schedule, stats = scheduler.create_time_based_schedule(duration)
                 else:  # round_robin
+                    import time
+                    start_time = time.time()
                     schedule = scheduler.create_round_robin_schedule()
+                    elapsed = time.time() - start_time
+                    logger.info(f"Schedule generation took {elapsed:.2f}s for {len(tournament['teams'])} teams")
                     # Convert to dict format
                     schedule = [{'round': i+1, 'matches': round_matches} for i, round_matches in enumerate(schedule)]
                     stats = scheduler.get_schedule_stats(schedule)
                 
                 # Save to database
-                if db.save_matches(tournament_id, schedule):
+                result = db.save_matches(tournament_id, schedule)
+                if result:
                     flash('Spielplan erfolgreich generiert!', 'success')
                     return redirect(url_for('tournament_detail', tournament_id=tournament_id))
                 else:
-                    flash('Fehler beim Speichern des Spielplans.', 'error')
+                    flash('Fehler beim Speichern des Spielplans. Möglicherweise wurden bereits Spiele ausgetragen.', 'error')
                     
             except Exception as e:
                 logger.error(f"Error generating schedule: {e}")
@@ -264,13 +291,36 @@ def create_app(config_name='default'):
             team1_score = int(request.form.get('team1_score', 0))
             team2_score = int(request.form.get('team2_score', 0))
             
+            # Get match details for validation
             db = get_db()
+            matches = db.get_matches_by_id(match_id)
+            if not matches:
+                return jsonify({'success': False, 'message': 'Match nicht gefunden.'}), 404
+            
+            match = matches[0]
+            team1 = match['team1']
+            team2 = match['team2']
+            
+            # Validate winner
+            valid_winners = [team1, team2, 'Draw', '']
+            if winner not in valid_winners:
+                return jsonify({'success': False, 'message': 'Ungültiger Gewinner.'}), 400
+            
+            # Validate scores
+            if team1_score < 0 or team2_score < 0:
+                return jsonify({'success': False, 'message': 'Punkte dürfen nicht negativ sein.'}), 400
+            
+            if team1_score > 999 or team2_score > 999:
+                return jsonify({'success': False, 'message': 'Punkte dürfen nicht größer als 999 sein.'}), 400
+            
             if db.update_match_result(match_id, winner, team1_score, team2_score):
                 # Return updated match card as HTMX response
                 return jsonify({'success': True, 'message': 'Match aktualisiert!'})
             else:
                 return jsonify({'success': False, 'message': 'Fehler beim Aktualisieren.'}), 400
                 
+        except ValueError:
+            return jsonify({'success': False, 'message': 'Ungültige Punktzahl.'}), 400
         except Exception as e:
             logger.error(f"Error updating match: {e}")
             return jsonify({'success': False, 'message': 'Fehler beim Aktualisieren.'}), 500

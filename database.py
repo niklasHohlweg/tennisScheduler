@@ -18,7 +18,9 @@ class Database:
             'port': config.get('DB_PORT', '5432'),
             'database': config.get('DB_NAME', 'tennis_scheduler'),
             'user': config.get('DB_USER', 'tennis_user'),
-            'password': config.get('DB_PASSWORD', 'tennis_password')
+            'password': config.get('DB_PASSWORD', 'tennis_password'),
+            'connect_timeout': 10,  # Connection timeout in seconds
+            'options': '-c statement_timeout=30000'  # Query timeout: 30s
         }
     
     @contextmanager
@@ -288,9 +290,18 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Clear existing matches for this tournament
-                cursor.execute("DELETE FROM matches WHERE tournament_id = %s", (tournament_id,))
-
+                # Check if any matches have been played
+                cursor.execute("""
+                    SELECT COUNT(*) as played_count FROM matches 
+                    WHERE tournament_id = %s AND winner IS NOT NULL
+                """, (tournament_id,))
+                result = cursor.fetchone()
+                
+                if result and result[0] > 0:
+                    cursor.close()
+                    logger.warning(f"Cannot regenerate schedule: {result[0]} matches already played")
+                    return False
+                
                 # Insert new matches
                 for round_num, round_data in enumerate(schedule, 1):
                     if isinstance(round_data, dict):  # Time-based
@@ -354,31 +365,81 @@ class Database:
             logger.error(f"Error fetching matches: {e}")
             return []
     
+    def get_matches_by_id(self, match_id):
+        """Get a specific match by ID"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                
+                cursor.execute("""
+                    SELECT id, tournament_id, round_number, court_number, team1, team2, 
+                           winner, team1_score, team2_score, played_at, 
+                           start_time_minutes, end_time_minutes
+                    FROM matches
+                    WHERE id = %s
+                """, (match_id,))
+                
+                match = cursor.fetchone()
+                cursor.close()
+                
+                if match:
+                    m_dict = dict(match)
+                    m_dict['id'] = str(m_dict['id'])
+                    m_dict['tournament_id'] = str(m_dict['tournament_id'])
+                    return [m_dict]
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching match by ID: {e}")
+            return []
+    
     def update_match_result(self, match_id, winner, team1_score, team2_score):
         """Update match result"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
 
+                # Get current match state to check if already played and validate winner
+                cursor.execute("""
+                    SELECT tournament_id, team1, team2, winner as old_winner, 
+                           team1_score as old_team1_score, team2_score as old_team2_score
+                    FROM matches
+                    WHERE id = %s
+                """, (match_id,))
+                
+                match_info = cursor.fetchone()
+                if not match_info:
+                    cursor.close()
+                    return False
+                
+                # If match was already played, reverse the old stats first
+                if match_info['old_winner'] is not None:
+                    self._reverse_team_stats(
+                        cursor,
+                        match_info['tournament_id'],
+                        match_info['team1'],
+                        match_info['team2'],
+                        match_info['old_winner'],
+                        match_info['old_team1_score'] or 0,
+                        match_info['old_team2_score'] or 0
+                    )
+
                 # Update match
                 cursor.execute("""
                     UPDATE matches
                     SET winner = %s, team1_score = %s, team2_score = %s, played_at = NOW()
                     WHERE id = %s
-                    RETURNING tournament_id, team1, team2
                 """, (winner, team1_score, team2_score, match_id))
 
-                match_info = cursor.fetchone()
-                if match_info:
-                    self._update_team_stats(
-                        cursor,
-                        match_info['tournament_id'],
-                        match_info['team1'],
-                        match_info['team2'],
-                        winner,
-                        team1_score,
-                        team2_score
-                    )
+                # Apply new stats
+                self._update_team_stats(
+                    cursor,
+                    match_info['tournament_id'],
+                    match_info['team1'],
+                    match_info['team2'],
+                    winner,
+                    team1_score,
+                    team2_score
+                )
 
                 cursor.close()
                 return True
@@ -389,61 +450,88 @@ class Database:
     
     def _update_team_stats(self, cursor, tournament_id, team1, team2, winner, team1_score, team2_score):
         """Update team statistics"""
-        # Update team1 stats
+        # Update team1 stats (no SELECT needed - just UPDATE)
         cursor.execute("""
-            SELECT * FROM team_stats 
+            UPDATE team_stats
+            SET matches_played = matches_played + 1,
+                points_for = points_for + %s,
+                points_against = points_against + %s,
+                matches_won = matches_won + %s,
+                matches_lost = matches_lost + %s,
+                ranking_points = ranking_points + %s
             WHERE tournament_id = %s AND team_name = %s
-        """, (tournament_id, team1))
-        
-        stats = cursor.fetchone()
-        if stats:
-            cursor.execute("""
-                UPDATE team_stats
-                SET matches_played = matches_played + 1,
-                    points_for = points_for + %s,
-                    points_against = points_against + %s,
-                    matches_won = matches_won + %s,
-                    matches_lost = matches_lost + %s,
-                    ranking_points = ranking_points + %s
-                WHERE tournament_id = %s AND team_name = %s
-            """, (
-                team1_score, 
-                team2_score,
-                1 if winner == team1 else 0,
-                1 if winner == team2 else 0,
-                3 if winner == team1 else (1 if winner == "Draw" else 0),
-                tournament_id,
-                team1
-            ))
+        """, (
+            team1_score, 
+            team2_score,
+            1 if winner == team1 else 0,
+            1 if winner == team2 else 0,
+            3 if winner == team1 else (1 if winner == "Draw" else 0),
+            tournament_id,
+            team1
+        ))
 
-        # Update team2 stats
+        # Update team2 stats (no SELECT needed - just UPDATE)
         cursor.execute("""
-            SELECT * FROM team_stats 
+            UPDATE team_stats
+            SET matches_played = matches_played + 1,
+                points_for = points_for + %s,
+                points_against = points_against + %s,
+                matches_won = matches_won + %s,
+                matches_lost = matches_lost + %s,
+                ranking_points = ranking_points + %s
             WHERE tournament_id = %s AND team_name = %s
-        """, (tournament_id, team2))
-        
-        stats = cursor.fetchone()
-        if stats:
-            cursor.execute("""
-                UPDATE team_stats
-                SET matches_played = matches_played + 1,
-                    points_for = points_for + %s,
-                    points_against = points_against + %s,
-                    matches_won = matches_won + %s,
-                    matches_lost = matches_lost + %s,
-                    ranking_points = ranking_points + %s
-                WHERE tournament_id = %s AND team_name = %s
-            """, (
-                team2_score,
-                team1_score,
-                1 if winner == team2 else 0,
-                1 if winner == team1 else 0,
-                3 if winner == team2 else (1 if winner == "Draw" else 0),
-                tournament_id,
-                team2
-            ))
+        """, (
+            team2_score,
+            team1_score,
+            1 if winner == team2 else 0,
+            1 if winner == team1 else 0,
+            3 if winner == team2 else (1 if winner == "Draw" else 0),
+            tournament_id,
+            team2
+        ))
     
-    # ==================== RANKING OPERATIONS ====================
+    def _reverse_team_stats(self, cursor, tournament_id, team1, team2, winner, team1_score, team2_score):
+        """Reverse team statistics (for correcting match results)"""
+        # Reverse team1 stats
+        cursor.execute("""
+            UPDATE team_stats
+            SET matches_played = matches_played - 1,
+                points_for = points_for - %s,
+                points_against = points_against - %s,
+                matches_won = matches_won - %s,
+                matches_lost = matches_lost - %s,
+                ranking_points = ranking_points - %s
+            WHERE tournament_id = %s AND team_name = %s
+        """, (
+            team1_score, 
+            team2_score,
+            1 if winner == team1 else 0,
+            1 if winner == team2 else 0,
+            3 if winner == team1 else (1 if winner == "Draw" else 0),
+            tournament_id,
+            team1
+        ))
+
+        # Reverse team2 stats
+        cursor.execute("""
+            UPDATE team_stats
+            SET matches_played = matches_played - 1,
+                points_for = points_for - %s,
+                points_against = points_against - %s,
+                matches_won = matches_won - %s,
+                matches_lost = matches_lost - %s,
+                ranking_points = ranking_points - %s
+            WHERE tournament_id = %s AND team_name = %s
+        """, (
+            team2_score,
+            team1_score,
+            1 if winner == team2 else 0,
+            1 if winner == team1 else 0,
+            3 if winner == team2 else (1 if winner == "Draw" else 0),
+            tournament_id,
+            team2
+        ))
+        # ==================== RANKING OPERATIONS ====================
     
     def get_ranking(self, tournament_id, owner_id):
         """Get tournament ranking"""

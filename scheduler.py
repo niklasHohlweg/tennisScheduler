@@ -69,8 +69,8 @@ class TennisScheduler:
 
     def get_time_based_stats(self, schedule, team_counts, total_duration):
         """Calculate statistics for time-based schedule"""
-        total_matches = sum(len(r['matches']) for r in schedule)
-        actual_duration = len(schedule) * 20
+        total_matches = sum(len(r['matches']) for r in schedule) if schedule else 0
+        actual_duration = len(schedule) * 20 if schedule else 0
         stats = {
             'total_rounds': len(schedule),
             'total_matches': total_matches,
@@ -92,22 +92,24 @@ class TennisScheduler:
         total_matches = len(all_matches)
         rounds_needed = math.ceil(total_matches / self.matches_per_round)
         schedule = []
-        remaining = all_matches.copy()
-        random.shuffle(remaining)
+        
+        # Use a set for O(1) removal instead of list
+        remaining = set(all_matches)
         
         for round_num in range(1, rounds_needed + 1):
             round_matches = self.create_optimal_round(remaining, round_num)
             schedule.append(round_matches)
-            for match in round_matches:
-                if match in remaining:
-                    remaining.remove(match)
+            # Remove used matches from set - O(1) per match
+            remaining -= set(round_matches)
         return schedule
 
     def create_optimal_round(self, available_matches, round_num):
         """Create optimal round from available matches"""
         round_matches = []
         used = set()
-        for match in available_matches.copy():
+        # Convert to list for iteration (needed for set input)
+        matches_list = list(available_matches)
+        for match in matches_list:
             a, b = match
             if a not in used and b not in used:
                 if len(round_matches) < self.matches_per_round:

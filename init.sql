@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS matches (
 -- Create indexes for matches table
 CREATE INDEX IF NOT EXISTS idx_matches_tournament_id ON matches(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_matches_round_court ON matches(round_number, court_number);
+CREATE INDEX IF NOT EXISTS idx_matches_winner ON matches(tournament_id, winner);
+CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches(tournament_id, team1, team2);
 
 -- Create team_stats table
 CREATE TABLE IF NOT EXISTS team_stats (
@@ -69,6 +71,7 @@ CREATE TABLE IF NOT EXISTS team_stats (
 -- Create indexes for team_stats table
 CREATE INDEX IF NOT EXISTS idx_team_stats_tournament_id ON team_stats(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_team_stats_ranking ON team_stats(tournament_id, ranking_points DESC, matches_won DESC);
+CREATE INDEX IF NOT EXISTS idx_team_stats_lookup ON team_stats(tournament_id, team_name);
 
 -- Grant necessary permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO tennis_user;
