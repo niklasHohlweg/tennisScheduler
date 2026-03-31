@@ -181,8 +181,13 @@ class TennisScheduler:
         stats['court_utilization'] = (total_matches / (len(schedule) * self.num_courts) * 100) if len(schedule) > 0 else 0
         return stats
 
-    def create_round_robin_schedule(self):
-        """Create full round-robin schedule where every team plays every other team once"""
+    def create_round_robin_schedule(self, round_duration=15, break_duration=5):
+        """Create full round-robin schedule where every team plays every other team once
+        
+        Args:
+            round_duration: Duration of each round in minutes (default: 15)
+            break_duration: Break time between rounds in minutes (default: 5)
+        """
         all_matches = list(itertools.combinations(self.teams, 2))
         total_matches = len(all_matches)
         rounds_needed = math.ceil(total_matches / self.matches_per_round)
@@ -191,9 +196,23 @@ class TennisScheduler:
         # Use a set for O(1) removal instead of list
         remaining = set(all_matches)
         
+        # Calculate time for one complete round cycle (play + break)
+        minutes_per_round = round_duration + break_duration
+        
         for round_num in range(1, rounds_needed + 1):
             round_matches = self.create_optimal_round(remaining, round_num)
-            schedule.append(round_matches)
+            
+            # Calculate start and end times
+            round_start = (round_num - 1) * minutes_per_round
+            round_end = round_start + round_duration
+            
+            schedule.append({
+                'round': round_num,
+                'matches': round_matches,
+                'start_time': round_start,
+                'end_time': round_end
+            })
+            
             # Remove used matches from set - O(1) per match
             remaining -= set(round_matches)
         return schedule

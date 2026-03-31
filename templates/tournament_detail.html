@@ -154,6 +154,14 @@
         <div class="font-semibold text-[#1A1A1A] group-hover:text-[#A8D430] transition-colors">Rangliste</div>
     </a>
 
+    {% if match_stats.total > 0 %}
+    <a href="{{ url_for('tournament_timetable', tournament_id=tournament.id) }}" 
+       class="group block p-6 bg-white rounded-xl shadow-sm border-2 border-[#D9D9D9] hover:border-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
+        <div class="text-4xl mb-3">📅</div>
+        <div class="font-semibold text-[#1A1A1A] group-hover:text-[#A8D430] transition-colors">Spielplan</div>
+    </a>
+    {% endif %}
+
     {% if match_stats.total == 0 %}
     <a href="{{ url_for('tournament_schedule', tournament_id=tournament.id) }}" 
        class="group block p-6 bg-[#CFEA7A] rounded-xl border-2 border-[#A8D430] hover:bg-[#A8D430] hover:shadow-lg transition-all duration-150 text-center">
@@ -191,6 +199,12 @@
                class="block px-4 py-3 text-sm text-[#1A1A1A] hover:bg-[#CFEA7A] transition-colors border-t border-[#D9D9D9]">
                 📗 Excel
             </a>
+            {% if match_stats.total > 0 %}
+            <a href="{{ url_for('export_timetable_pdf', tournament_id=tournament.id) }}" 
+               class="block px-4 py-3 text-sm text-[#1A1A1A] hover:bg-[#CFEA7A] transition-colors border-t border-[#D9D9D9]">
+                📅 Spielplan PDF
+            </a>
+            {% endif %}
         </div>
     </div>
 </div>

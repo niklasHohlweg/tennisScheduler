@@ -4,12 +4,12 @@ import io
 import logging
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import config
 from database import Database, get_db
 from scheduler import TennisScheduler
-from utils import export_to_pdf, export_to_csv, export_to_excel, format_time_minutes, calculate_match_stats, calculate_team_distribution
+from utils import export_to_pdf, export_to_csv, export_to_excel, export_timetable_to_pdf, format_time_minutes, calculate_match_stats, calculate_team_distribution
 
 
 # Configure logging
@@ -40,8 +40,13 @@ def create_app(config_name='default'):
     @app.template_filter('format_datetime')
     def format_datetime_filter(dt):
         if dt:
-            return dt.strftime('%Y-%m-%d %H:%M')
+            return dt.strftime('%d.%m.%Y, %H:%M Uhr')
         return ''
+    
+    # Context processor to make timedelta available in templates
+    @app.context_processor
+    def inject_utils():
+        return dict(timedelta=timedelta)
     
     # Authentication decorator
     def login_required(f):
@@ -134,9 +139,28 @@ def create_app(config_name='default'):
                 match_type = request.form.get('match_type', 'single')
                 player_input_mode = request.form.get('player_input_mode', 'count')
                 
+                # Get tournament timing information
+                start_date = request.form.get('start_date', '').strip()
+                start_time_str = request.form.get('start_time', '').strip()
+                game_duration = int(request.form.get('game_duration', 15))
+                break_duration_form = int(request.form.get('break_duration', 5))
+                
+                # Combine date and time into timestamp
+                start_time = None
+                if start_date and start_time_str:
+                    try:
+                        start_time = datetime.strptime(f"{start_date} {start_time_str}", "%Y-%m-%d %H:%M")
+                    except ValueError:
+                        flash('Ungültiges Datum oder Zeit Format.', 'error')
+                        return redirect(url_for('create_tournament'))
+                
                 # Validate input
                 if not name:
                     flash('Turniername ist erforderlich.', 'error')
+                    return redirect(url_for('create_tournament'))
+                
+                if not start_date or not start_time_str:
+                    flash('Startdatum und Startzeit sind erforderlich.', 'error')
                     return redirect(url_for('create_tournament'))
                 
                 # Process based on input mode
@@ -220,7 +244,10 @@ def create_app(config_name='default'):
                         session['user_id'], session['user_email'],
                         match_type=match_type,
                         num_players=num_players,
-                        team_size=team_size
+                        team_size=team_size,
+                        round_duration=game_duration,
+                        break_duration=break_duration_form,
+                        start_time=start_time
                     )
                     
                     if tournament_id:
@@ -285,7 +312,10 @@ def create_app(config_name='default'):
                         session['user_id'], session['user_email'],
                         match_type=match_type,
                         num_players=num_players,
-                        team_size=team_size
+                        team_size=team_size,
+                        round_duration=game_duration,
+                        break_duration=break_duration_form,
+                        start_time=start_time
                     )
                     
                     if tournament_id:
@@ -351,21 +381,19 @@ def create_app(config_name='default'):
                 
                 if tournament['mode'] == 'time_based':
                     duration = int(request.form.get('duration', 120))
-                    round_duration = int(request.form.get('round_duration', tournament.get('round_duration', 15)))
-                    break_duration = int(request.form.get('break_duration', tournament.get('break_duration', 5)))
-                    
-                    # Update tournament with new round settings
-                    db.update_tournament_round_settings(tournament_id, session['user_id'], round_duration, break_duration)
+                    round_duration = tournament.get('round_duration', 15)
+                    break_duration = tournament.get('break_duration', 5)
                     
                     schedule, stats = scheduler.create_time_based_schedule(duration, round_duration, break_duration)
                 else:  # round_robin
                     import time
                     start_time = time.time()
-                    schedule = scheduler.create_round_robin_schedule()
+                    round_duration = tournament.get('round_duration', 15)
+                    break_duration = tournament.get('break_duration', 5)
+                    schedule = scheduler.create_round_robin_schedule(round_duration, break_duration)
                     elapsed = time.time() - start_time
                     logger.info(f"Schedule generation took {elapsed:.2f}s for {len(tournament['teams'])} teams")
-                    # Convert to dict format
-                    schedule = [{'round': i+1, 'matches': round_matches} for i, round_matches in enumerate(schedule)]
+                    # Schedule is already in dict format with time information
                     stats = scheduler.get_schedule_stats(schedule)
                 
                 # Save to database
@@ -579,6 +607,67 @@ def create_app(config_name='default'):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
             download_name=f"{tournament['name']}_export.xlsx"
+        )
+    
+    @app.route('/tournament/<tournament_id>/timetable')
+    @login_required
+    def tournament_timetable(tournament_id):
+        """View tournament timetable"""
+        db = get_db()
+        tournament = db.get_tournament(tournament_id, session['user_id'])
+        
+        if not tournament:
+            flash('Turnier nicht gefunden.', 'error')
+            return redirect(url_for('dashboard'))
+        
+        matches = db.get_matches(tournament_id, session['user_id'])
+        
+        # Group matches by round
+        rounds = {}
+        for match in matches:
+            round_num = match['round_number']
+            if round_num not in rounds:
+                rounds[round_num] = {
+                    'round': round_num,
+                    'matches': [],
+                    'start_time': match.get('start_time_minutes'),
+                    'end_time': match.get('end_time_minutes')
+                }
+            rounds[round_num]['matches'].append(match)
+        
+        # Sort rounds
+        sorted_rounds = [rounds[k] for k in sorted(rounds.keys())]
+        
+        return render_template('tournament_timetable.html',
+                             tournament=tournament,
+                             rounds=sorted_rounds)
+    
+    @app.route('/tournament/<tournament_id>/timetable/pdf')
+    @login_required
+    def export_timetable_pdf(tournament_id):
+        """Export tournament timetable to PDF"""
+        db = get_db()
+        tournament = db.get_tournament(tournament_id, session['user_id'])
+        
+        if not tournament:
+            flash('Turnier nicht gefunden.', 'error')
+            return redirect(url_for('dashboard'))
+        
+        matches = db.get_matches(tournament_id, session['user_id'])
+        start_time = tournament.get('start_time')
+        
+        pdf_data = export_timetable_to_pdf(
+            tournament['name'], 
+            matches, 
+            start_time,
+            tournament['num_courts']
+        )
+        
+        return send_file(
+            io.BytesIO(pdf_data),
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f"{tournament['name']}_Spielplan.pdf"
         )
     
     # ==================== SEARCH ====================

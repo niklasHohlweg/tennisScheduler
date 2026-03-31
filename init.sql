@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS tournaments (
     num_players INTEGER,
     team_size INTEGER,
     round_duration INTEGER DEFAULT 15,
-    break_duration INTEGER DEFAULT 5
+    break_duration INTEGER DEFAULT 5,
+    start_time TIMESTAMP
 );
 
 -- Create index on owner_id for faster queries

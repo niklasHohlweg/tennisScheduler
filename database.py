@@ -156,7 +156,7 @@ class Database:
     # ==================== TOURNAMENT OPERATIONS ====================
     
     def create_tournament(self, name, teams, num_courts, players_per_team, mode, owner_id, owner_email, 
-                         match_type='single', num_players=None, team_size=None, round_duration=15, break_duration=5):
+                         match_type='single', num_players=None, team_size=None, round_duration=15, break_duration=5, start_time=None):
         """Create a tournament for the logged-in user"""
         try:
             with self.get_connection() as conn:
@@ -164,11 +164,11 @@ class Database:
 
                 cursor.execute("""
                     INSERT INTO tournaments (name, teams, num_courts, players_per_team, mode, owner_id, owner_email,
-                                           match_type, num_players, team_size, round_duration, break_duration)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                           match_type, num_players, team_size, round_duration, break_duration, start_time)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (name, Json(teams), num_courts, players_per_team, mode, owner_id, owner_email, 
-                      match_type, num_players, team_size, round_duration, break_duration))
+                      match_type, num_players, team_size, round_duration, break_duration, start_time))
 
                 tournament_id = cursor.fetchone()['id']
 
@@ -195,7 +195,7 @@ class Database:
                 cursor.execute("""
                     SELECT id, name, teams, num_courts, players_per_team, mode, 
                            owner_id, owner_email, created_at, match_type, num_players, team_size,
-                           round_duration, break_duration
+                           round_duration, break_duration, start_time
                     FROM tournaments
                     WHERE owner_id = %s
                     ORDER BY created_at DESC
@@ -221,7 +221,7 @@ class Database:
                 cursor.execute("""
                     SELECT id, name, teams, num_courts, players_per_team, mode, 
                            owner_id, owner_email, created_at, match_type, num_players, team_size,
-                           round_duration, break_duration
+                           round_duration, break_duration, start_time
                     FROM tournaments
                     WHERE id = %s AND owner_id = %s
                 """, (tournament_id, owner_id))

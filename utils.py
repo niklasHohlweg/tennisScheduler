@@ -1,11 +1,12 @@
 """Utility functions for PDF export and data formatting"""
 import io
-from datetime import datetime
-from reportlab.lib.pagesizes import A4
+from datetime import datetime, timedelta
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER
 import pandas as pd
 
 
@@ -22,7 +23,7 @@ def export_to_pdf(tournament_name, matches, ranking):
     story.append(Spacer(1, 0.2*inch))
     
     # Date
-    date_text = Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal'])
+    date_text = Paragraph(f"Erstellt am: {datetime.now().strftime('%d.%m.%Y um %H:%M Uhr')}", styles['Normal'])
     story.append(date_text)
     story.append(Spacer(1, 0.3*inch))
     
@@ -86,6 +87,124 @@ def export_to_pdf(tournament_name, matches, ranking):
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         story.append(match_table)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def export_timetable_to_pdf(tournament_name, matches, start_time, num_courts):
+    """Export tournament timetable to PDF with actual times
+    
+    Args:
+        tournament_name: Name of the tournament
+        matches: List of matches with round, court, teams, and time info
+        start_time: Tournament start datetime
+        num_courts: Number of courts
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), 
+                           leftMargin=0.5*inch, rightMargin=0.5*inch,
+                           topMargin=0.5*inch, bottomMargin=0.5*inch)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Create custom title style
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        textColor=colors.HexColor('#0F3A4A'),
+        spaceAfter=12,
+        alignment=TA_CENTER
+    )
+    
+    # Title
+    title = Paragraph(f"<b>{tournament_name} - Spielplan</b>", title_style)
+    story.append(title)
+    
+    # Start time and date
+    if start_time:
+        date_text = Paragraph(
+            f"Start: {start_time.strftime('%d.%m.%Y um %H:%M Uhr')}", 
+            styles['Normal']
+        )
+        story.append(date_text)
+    
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Group matches by round
+    rounds = {}
+    for match in matches:
+        round_num = match['round_number']
+        if round_num not in rounds:
+            rounds[round_num] = []
+        rounds[round_num].append(match)
+    
+    # Create timetable for each round
+    for round_num in sorted(rounds.keys()):
+        round_matches = rounds[round_num]
+        
+        # Round header
+        story.append(Paragraph(f"<b>Runde {round_num}</b>", styles['Heading2']))
+        
+        # Calculate round time
+        if round_matches and start_time and round_matches[0].get('start_time_minutes') is not None:
+            start_minutes = round_matches[0]['start_time_minutes']
+            end_minutes = round_matches[0].get('end_time_minutes', start_minutes + 15)
+            
+            round_start_time = start_time + timedelta(minutes=start_minutes)
+            round_end_time = start_time + timedelta(minutes=end_minutes)
+            
+            time_text = Paragraph(
+                f"Zeit: {round_start_time.strftime('%H:%M')} Uhr - {round_end_time.strftime('%H:%M')} Uhr",
+                styles['Normal']
+            )
+            story.append(time_text)
+        
+        story.append(Spacer(1, 0.1*inch))
+        
+        # Create table for this round
+        table_data = [['Platz', 'Team 1', 'vs', 'Team 2']]
+        
+        # Sort by court number
+        sorted_matches = sorted(round_matches, key=lambda x: x['court_number'])
+        
+        for match in sorted_matches:
+            table_data.append([
+                f"Platz {match['court_number']}",
+                match['team1'],
+                'vs',
+                match['team2']
+            ])
+        
+        # Create table
+        match_table = Table(table_data, colWidths=[1*inch, 3*inch, 0.5*inch, 3*inch])
+        match_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0F3A4A')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#F4F6F5')),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F4F6F5')])
+        ]))
+        story.append(match_table)
+        story.append(Spacer(1, 0.3*inch))
+    
+    # Footer with generation info
+    story.append(Spacer(1, 0.2*inch))
+    footer = Paragraph(
+        f"<i>Erstellt am {datetime.now().strftime('%d.%m.%Y um %H:%M Uhr')}</i>",
+        styles['Normal']
+    )
+    story.append(footer)
     
     doc.build(story)
     buffer.seek(0)
