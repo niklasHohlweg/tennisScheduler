@@ -25,7 +25,12 @@ CREATE TABLE IF NOT EXISTS tournaments (
     mode TEXT NOT NULL,
     owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
     owner_email TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    match_type TEXT DEFAULT 'single',
+    num_players INTEGER,
+    team_size INTEGER,
+    round_duration INTEGER DEFAULT 15,
+    break_duration INTEGER DEFAULT 5
 );
 
 -- Create index on owner_id for faster queries
