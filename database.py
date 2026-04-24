@@ -255,24 +255,117 @@ class Database:
             logger.error(f"Error updating tournament: {e}")
             return False
     
-    def update_tournament_round_settings(self, tournament_id, owner_id, round_duration, break_duration):
-        """Update tournament round duration and break duration"""
+    def update_teams_and_players(self, tournament_id, owner_id, teams_with_players):
+        """Replace all teams and players for a tournament and reset the schedule.
+
+        Args:
+            tournament_id: UUID of the tournament
+            owner_id: UUID of the owner (for ownership check)
+            teams_with_players: list of dicts {'name': str, 'players': [str]}
+        Returns True on success, False on failure.
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                cursor.execute("""
-                    UPDATE tournaments 
-                    SET round_duration = %s, break_duration = %s
-                    WHERE id = %s AND owner_id = %s
-                """, (round_duration, break_duration, tournament_id, owner_id))
-                
+
+                # Ownership check
+                cursor.execute(
+                    "SELECT id FROM tournaments WHERE id = %s AND owner_id = %s",
+                    (tournament_id, owner_id)
+                )
+                if not cursor.fetchone():
+                    cursor.close()
+                    return False
+
+                new_team_names = [t['name'] for t in teams_with_players]
+
+                # Replace teams array on the tournament
+                cursor.execute(
+                    "UPDATE tournaments SET teams = %s WHERE id = %s",
+                    (Json(new_team_names), tournament_id)
+                )
+
+                # Replace all players
+                cursor.execute("DELETE FROM players WHERE tournament_id = %s", (tournament_id,))
+                for team in teams_with_players:
+                    for player_name in team['players']:
+                        cursor.execute("""
+                            INSERT INTO players (tournament_id, name, team_name)
+                            VALUES (%s, %s, %s)
+                        """, (tournament_id, player_name, team['name']))
+
+                # Clear schedule so it can be regenerated
+                cursor.execute("DELETE FROM matches WHERE tournament_id = %s", (tournament_id,))
+                cursor.execute("DELETE FROM team_stats WHERE tournament_id = %s", (tournament_id,))
+
+                # Re-create empty team_stats rows for the new teams
+                for team_name in new_team_names:
+                    cursor.execute("""
+                        INSERT INTO team_stats (tournament_id, team_name, matches_played, matches_won,
+                                               matches_lost, points_for, points_against, ranking_points)
+                        VALUES (%s, %s, 0, 0, 0, 0, 0, 0)
+                    """, (tournament_id, team_name))
+
                 cursor.close()
+                logger.info(f"Teams and players updated for tournament {tournament_id}: {new_team_names}")
                 return True
-                
+
         except Exception as e:
-            logger.error(f"Error updating tournament round settings: {e}")
+            logger.error(f"Error updating teams and players: {e}")
             return False
+
+    def update_tournament_times(self, tournament_id, owner_id, start_time, round_duration, break_duration):
+        """Update tournament start time, round duration and break duration.
+
+        Clears the existing schedule when round_duration or break_duration changed
+        (because the number of matches may differ). Returns a tuple (success, schedule_cleared).
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+                # Fetch current values for comparison
+                cursor.execute(
+                    "SELECT round_duration, break_duration FROM tournaments WHERE id = %s AND owner_id = %s",
+                    (tournament_id, owner_id)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    cursor.close()
+                    return False, False
+
+                timing_changed = (
+                    int(row['round_duration']) != round_duration
+                    or int(row['break_duration']) != break_duration
+                )
+
+                cursor.execute("""
+                    UPDATE tournaments
+                    SET start_time = %s, round_duration = %s, break_duration = %s
+                    WHERE id = %s AND owner_id = %s
+                """, (start_time, round_duration, break_duration, tournament_id, owner_id))
+
+                schedule_cleared = False
+                if timing_changed:
+                    cursor.execute("DELETE FROM matches WHERE tournament_id = %s", (tournament_id,))
+                    cursor.execute("DELETE FROM team_stats WHERE tournament_id = %s", (tournament_id,))
+                    schedule_cleared = True
+
+                cursor.close()
+                logger.info(
+                    f"Tournament times updated for {tournament_id} "
+                    f"(schedule_cleared={schedule_cleared})"
+                )
+                return True, schedule_cleared
+
+        except Exception as e:
+            logger.error(f"Error updating tournament times: {e}")
+            return False, False
+
+    def update_tournament_round_settings(self, tournament_id, owner_id, round_duration, break_duration):
+        """Legacy wrapper – use update_tournament_times instead."""
+        ok, _ = self.update_tournament_times(tournament_id, owner_id, None, round_duration, break_duration)
+        return ok
     
     def delete_tournament(self, tournament_id, owner_id):
         """Delete a tournament (with ownership check)"""

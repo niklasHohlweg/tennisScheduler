@@ -485,7 +485,7 @@ def create_app(config_name='default'):
     @app.route('/tournament/<tournament_id>/edit', methods=['GET', 'POST'])
     @login_required
     def edit_tournament(tournament_id):
-        """Edit tournament name"""
+        """Edit tournament name and timing settings"""
         db = get_db()
         tournament = db.get_tournament(tournament_id, session['user_id'])
         
@@ -495,14 +495,110 @@ def create_app(config_name='default'):
         
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
-            if name and db.update_tournament(tournament_id, session['user_id'], name):
-                flash('Turnier aktualisiert!', 'success')
+            if not name:
+                flash('Turniername ist erforderlich.', 'error')
+                return render_template('tournament_edit.html', tournament=tournament)
+
+            # Parse timing fields
+            try:
+                round_duration = int(request.form.get('round_duration', tournament.get('round_duration', 15)))
+                break_duration = int(request.form.get('break_duration', tournament.get('break_duration', 5)))
+                if round_duration < 1 or round_duration > 180:
+                    raise ValueError('round_duration out of range')
+                if break_duration < 0 or break_duration > 60:
+                    raise ValueError('break_duration out of range')
+            except (ValueError, TypeError):
+                flash('Ungültige Zeitangaben.', 'error')
+                return render_template('tournament_edit.html', tournament=tournament)
+
+            start_date = request.form.get('start_date', '').strip()
+            start_time_str = request.form.get('start_time_input', '').strip()
+            start_time = None
+            if start_date and start_time_str:
+                try:
+                    start_time = datetime.strptime(f"{start_date} {start_time_str}", "%Y-%m-%d %H:%M")
+                except ValueError:
+                    flash('Ungültiges Datum oder Zeitformat.', 'error')
+                    return render_template('tournament_edit.html', tournament=tournament)
+            elif start_date or start_time_str:
+                flash('Bitte Datum und Uhrzeit gemeinsam angeben.', 'error')
+                return render_template('tournament_edit.html', tournament=tournament)
+
+            name_ok = db.update_tournament(tournament_id, session['user_id'], name)
+            times_ok, schedule_cleared = db.update_tournament_times(
+                tournament_id, session['user_id'], start_time, round_duration, break_duration
+            )
+
+            if name_ok and times_ok:
+                if schedule_cleared:
+                    flash('Einstellungen gespeichert. Spielplan wurde zurückgesetzt – bitte neu erstellen.', 'success')
+                    return redirect(url_for('tournament_schedule', tournament_id=tournament_id))
+                flash('Einstellungen gespeichert!', 'success')
                 return redirect(url_for('tournament_detail', tournament_id=tournament_id))
             else:
                 flash('Fehler beim Aktualisieren.', 'error')
         
         return render_template('tournament_edit.html', tournament=tournament)
     
+    @app.route('/tournament/<tournament_id>/teams/edit', methods=['GET', 'POST'])
+    @login_required
+    def edit_teams(tournament_id):
+        """Edit tournament teams and players. Clears the existing schedule so it can be regenerated."""
+        db = get_db()
+        tournament = db.get_tournament(tournament_id, session['user_id'])
+
+        if not tournament:
+            flash('Turnier nicht gefunden.', 'error')
+            return redirect(url_for('dashboard'))
+
+        if request.method == 'POST':
+            try:
+                team_count = int(request.form.get('team_count', 0))
+            except (ValueError, TypeError):
+                flash('Ungültige Formulardaten.', 'error')
+                players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
+                return render_template('tournament_teams_edit.html', tournament=tournament,
+                                       players_by_team=players_by_team)
+
+            teams_with_players = []
+            seen_names = set()
+            for i in range(team_count):
+                team_name = request.form.get(f'team_{i}_name', '').strip()
+                if not team_name or team_name in seen_names:
+                    continue
+                seen_names.add(team_name)
+
+                try:
+                    player_count = int(request.form.get(f'team_{i}_player_count', 0))
+                except (ValueError, TypeError):
+                    player_count = 0
+
+                players = []
+                seen_players = set()
+                for j in range(player_count):
+                    pname = request.form.get(f'team_{i}_player_{j}', '').strip()
+                    if pname and pname not in seen_players:
+                        seen_players.add(pname)
+                        players.append(pname)
+
+                teams_with_players.append({'name': team_name, 'players': players})
+
+            if len(teams_with_players) < 2:
+                flash('Es müssen mindestens 2 Teams vorhanden sein.', 'error')
+                players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
+                return render_template('tournament_teams_edit.html', tournament=tournament,
+                                       players_by_team=players_by_team)
+
+            if db.update_teams_and_players(tournament_id, session['user_id'], teams_with_players):
+                flash('Teams aktualisiert! Der Spielplan wurde zurückgesetzt und muss neu erstellt werden.', 'success')
+                return redirect(url_for('tournament_schedule', tournament_id=tournament_id))
+            else:
+                flash('Fehler beim Aktualisieren der Teams.', 'error')
+
+        players_by_team = db.get_players_by_team(tournament_id, session['user_id'])
+        return render_template('tournament_teams_edit.html', tournament=tournament,
+                               players_by_team=players_by_team)
+
     @app.route('/tournament/<tournament_id>/delete', methods=['POST'])
     @login_required
     def delete_tournament(tournament_id):

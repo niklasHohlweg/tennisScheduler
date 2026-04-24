@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Teams bearbeiten{% endblock %}
+
+{% block content %}
+<script>
+  var _teamsData = {{ tournament.teams | tojson | safe }};
+  var _playersData = {{ players_by_team | tojson | safe }};
+</script>
+
+<div class="max-w-3xl mx-auto" x-data="teamsEditor(_teamsData, _playersData)">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-[#0F3A4A] mb-2">Teams bearbeiten</h1>
+        <p class="text-gray-600">{{ tournament.name }}</p>
+    </div>
+
+    <!-- Warning -->
+    <div class="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800 text-sm">
+        <span class="text-xl leading-none mt-0.5">⚠️</span>
+        <span>
+            Änderungen an Teams oder Spielern setzen den Spielplan zurück.
+            Nach dem Speichern muss der Spielplan neu erstellt werden.
+        </span>
+    </div>
+
+    <form method="POST" action="{{ url_for('edit_teams', tournament_id=tournament.id) }}"
+          @submit.prevent="prepareAndSubmit($el)">
+
+        <!-- Team cards -->
+        <div class="space-y-4 mb-6">
+            <template x-for="(team, ti) in teams" :key="ti">
+                <div class="bg-white rounded-xl shadow-sm border border-[#D9D9D9] p-5">
+
+                    <!-- Team header -->
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="flex-1">
+                            <label class="block text-xs font-semibold text-gray-500 mb-1" x-text="'Team ' + (ti + 1)"></label>
+                            <input
+                                type="text"
+                                x-model="team.name"
+                                placeholder="Teamname"
+                                required
+                                class="w-full px-4 py-2.5 border-2 border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150 font-semibold text-[#0F3A4A]"
+                            >
+                        </div>
+                        <button
+                            type="button"
+                            @click="removeTeam(ti)"
+                            x-show="teams.length > 2"
+                            title="Team löschen"
+                            class="mt-5 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Players -->
+                    <div class="space-y-2 mb-3" x-show="team.players.length > 0">
+                        <p class="text-xs font-semibold text-gray-500 mb-2">Spieler</p>
+                        <template x-for="(player, pi) in team.players" :key="pi">
+                            <div class="flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    x-model="team.players[pi]"
+                                    placeholder="Spielername"
+                                    class="flex-1 px-3 py-2 border border-[#D9D9D9] rounded-lg focus:ring-2 focus:ring-[#A8D430] focus:border-[#A8D430] transition-all duration-150 text-sm"
+                                >
+                                <button
+                                    type="button"
+                                    @click="removePlayer(ti, pi)"
+                                    title="Spieler entfernen"
+                                    class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Add player -->
+                    <button
+                        type="button"
+                        @click="addPlayer(ti)"
+                        class="flex items-center gap-1.5 text-sm text-[#1F6F78] font-medium hover:text-[#0F3A4A] transition-colors"
+                    >
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                        </svg>
+                        Spieler hinzufügen
+                    </button>
+                </div>
+            </template>
+        </div>
+
+        <!-- Add team -->
+        <button
+            type="button"
+            @click="addTeam"
+            class="w-full mb-8 py-3 border-2 border-dashed border-[#A8D430] rounded-xl text-[#1F6F78] font-semibold hover:bg-[#A8D430]/10 transition-colors flex items-center justify-center gap-2"
+        >
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+            </svg>
+            Team hinzufügen
+        </button>
+
+        <!-- Actions -->
+        <div class="flex justify-end gap-3 pt-4 border-t border-[#D9D9D9]">
+            <a href="{{ url_for('tournament_detail', tournament_id=tournament.id) }}"
+               class="px-6 py-3 border-2 border-[#D9D9D9] rounded-lg text-[#1A1A1A] font-semibold hover:border-[#1F6F78] hover:bg-[#F4F6F5] transition-all duration-150">
+                Abbrechen
+            </a>
+            <button
+                type="submit"
+                class="px-6 py-3 bg-[#A8D430] text-white rounded-lg font-semibold hover:bg-[#8FB828] hover:shadow-lg hover:scale-[1.02] transition-all duration-150"
+            >
+                💾 Speichern & Spielplan neu erstellen
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function teamsEditor(teamNames, playersByTeam) {
+    return {
+        teams: teamNames.map(function(name) {
+            return { name: name, players: (playersByTeam[name] || []).slice() };
+        }),
+
+        addTeam() {
+            this.teams.push({ name: '', players: [] });
+            this.$nextTick(() => {
+                const cards = this.$el.querySelectorAll('.space-y-4 > div > div:first-child input');
+                if (cards.length) cards[cards.length - 1].focus();
+            });
+        },
+
+        removeTeam(ti) {
+            if (this.teams.length > 2) this.teams.splice(ti, 1);
+        },
+
+        addPlayer(ti) {
+            this.teams[ti].players.push('');
+            this.$nextTick(() => {
+                const allInputs = this.$el.querySelectorAll('.space-y-2 input[type=text]');
+                if (allInputs.length) allInputs[allInputs.length - 1].focus();
+            });
+        },
+
+        removePlayer(ti, pi) {
+            this.teams[ti].players.splice(pi, 1);
+        },
+
+        prepareAndSubmit(form) {
+            // Remove any previously injected hidden inputs
+            form.querySelectorAll('input[data-gen]').forEach(el => el.remove());
+
+            const add = (name, value) => {
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = name;
+                inp.value = value;
+                inp.setAttribute('data-gen', '1');
+                form.appendChild(inp);
+            };
+
+            add('team_count', this.teams.length);
+            this.teams.forEach((team, ti) => {
+                add('team_' + ti + '_name', team.name);
+                add('team_' + ti + '_player_count', team.players.length);
+                team.players.forEach((player, pi) => {
+                    add('team_' + ti + '_player_' + pi, player);
+                });
+            });
+
+            form.submit();
+        }
+    };
+}
+</script>
+{% endblock %}
