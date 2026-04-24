@@ -120,12 +120,18 @@
                     </div>
                 </div>
 
+                <div class="mt-4 pt-4 border-t-2 border-brand-border" x-data="matchScore('{{ match.id }}', '{{ match.team1 }}', '{{ match.team2 }}', {{ match.team1_score if match.team1_score is not none else 0 }}, {{ match.team2_score if match.team2_score is not none else 0 }}, '{{ match.winner if match.winner else '' }}')">
                 {% if not match.winner %}
-                <div class="mt-4 pt-4 border-t-2 border-brand-border" x-data="matchScore('{{ match.id }}', '{{ match.team1 }}', '{{ match.team2 }}')">
                     <button @click="showForm = !showForm" 
                             class="btn-primary w-full px-4 py-3 sm:py-2.5 bg-brand-green text-white rounded-brand text-base sm:text-sm font-semibold min-h-[48px]">
                         ✏️ Ergebnis eintragen
                     </button>
+                {% else %}
+                    <button @click="showForm = !showForm" 
+                            class="w-full px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border-2 border-gray-300 rounded-brand text-sm font-semibold min-h-[44px] transition-colors">
+                        ✏️ Ergebnis bearbeiten
+                    </button>
+                {% endif %}
                     
                     <form x-show="showForm" 
                           x-transition
@@ -172,7 +178,6 @@
                         </button>
                     </form>
                 </div>
-                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -183,12 +188,12 @@
 {% endif %}
 
 <script>
-function matchScore(matchId, team1, team2) {
+function matchScore(matchId, team1, team2, initTeam1Score = 0, initTeam2Score = 0, initWinner = '') {
     return {
         showForm: false,
-        team1Score: 0,
-        team2Score: 0,
-        winner: '',
+        team1Score: initTeam1Score,
+        team2Score: initTeam2Score,
+        winner: initWinner,
         team1: team1,
         team2: team2,
         

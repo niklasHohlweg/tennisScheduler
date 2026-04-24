@@ -98,6 +98,14 @@
                             <span class="block text-xs sm:text-sm text-gray-600">Spieler werden zufällig in Teams eingeteilt</span>
                         </div>
                     </label>
+                    <label class="relative flex items-start p-4 sm:p-5 border-2 rounded-brand cursor-pointer card-hover min-h-[60px]"
+                           :class="playerInputMode === 'team_assignment' ? 'border-brand-green bg-green-50' : 'border-brand-border'">
+                        <input type="radio" name="player_input_mode" value="team_assignment" x-model="playerInputMode" @change="updateTeamCount()" class="mt-1 accent-brand-green">
+                        <div class="ml-3">
+                            <span class="block font-bold text-brand-text mb-1 text-sm sm:text-base">🏷️ Spieler direkt Teams zuweisen</span>
+                            <span class="block text-xs sm:text-sm text-gray-600">Spieler werden manuell den Teams zugewiesen</span>
+                        </div>
+                    </label>
                 </div>
                 
                 <!-- Number-based input -->
@@ -232,6 +240,79 @@
                             <span x-text="numTeamsFromNames"></span> Teams
                             <span x-show="playerList.length > 0 && teamSizeMinNames === teamSizeMaxNames" x-text="'mit je ' + teamSizeMinNames + ' Spielern'"></span>
                             <span x-show="playerList.length > 0 && teamSizeMinNames !== teamSizeMaxNames" x-text="'(' + numTeamsLargeNames + ' Teams mit ' + teamSizeMaxNames + ' Spielern, ' + numTeamsSmallNames + ' Teams mit ' + teamSizeMinNames + ' Spielern)'"></span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Team Assignment input -->
+                <div x-show="playerInputMode === 'team_assignment'" class="space-y-4">
+                    <div class="grid sm:grid-cols-2 gap-4 sm:gap-6">
+                        <div>
+                            <label class="block text-sm font-semibold text-brand-text mb-2">
+                                Anzahl Teams *
+                            </label>
+                            <input
+                                type="number"
+                                name="ta_num_teams"
+                                x-model.number="taNumTeams"
+                                min="2"
+                                max="50"
+                                :required="playerInputMode === 'team_assignment'"
+                                @input="updateTaTeams()"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                            >
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-brand-text mb-2">
+                                Anzahl Plätze *
+                            </label>
+                            <input
+                                type="number"
+                                name="ta_num_courts"
+                                min="1"
+                                max="20"
+                                value="2"
+                                :required="playerInputMode === 'team_assignment'"
+                                class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Team cards -->
+                    <div class="space-y-4">
+                        <template x-for="(team, index) in taTeams" :key="index">
+                            <div class="border-2 border-brand-border rounded-brand p-4">
+                                <div class="mb-3">
+                                    <label class="block text-sm font-semibold text-brand-text mb-2" x-text="'Team ' + (index + 1) + ' – Name'"></label>
+                                    <input
+                                        type="text"
+                                        :name="'ta_team_' + index"
+                                        x-model="team.name"
+                                        :placeholder="'Team ' + (index + 1)"
+                                        class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green text-base min-h-[48px]"
+                                    >
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold text-brand-text mb-2">Spieler (einer pro Zeile)</label>
+                                    <textarea
+                                        :name="'ta_team_' + index + '_players'"
+                                        x-model="team.players"
+                                        @input="updateTaTotalPlayers()"
+                                        rows="4"
+                                        placeholder="Max Mustermann&#10;Anna Schmidt&#10;..."
+                                        class="w-full px-4 py-3 border-2 border-brand-border rounded-brand focus:ring-2 focus:ring-brand-green focus:border-brand-green font-mono text-sm"
+                                    ></textarea>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="p-3 bg-blue-50 border border-blue-200 rounded-brand">
+                        <p class="text-sm text-blue-900 font-medium">
+                            <span class="font-bold">📊 Gesamt:</span>
+                            <span x-text="taTotalPlayers"></span> Spieler in
+                            <span x-text="taNumTeams"></span> Teams
                         </p>
                     </div>
                 </div>
@@ -377,6 +458,9 @@ function tournamentForm() {
         teamSizeMaxNames: 0,
         numTeamsLargeNames: 0,
         numTeamsSmallNames: 0,
+        taNumTeams: 2,
+        taTeams: [{name: '', players: ''}, {name: '', players: ''}],
+        taTotalPlayers: 0,
         
         updateTeamCount() {
             if (this.playerInputMode === 'count') {
@@ -421,6 +505,31 @@ function tournamentForm() {
                 this.numTeamsLargeNames = 0;
                 this.numTeamsSmallNames = 0;
             }
+        },
+
+        updateTaTeams() {
+            const target = this.taNumTeams;
+            const current = this.taTeams.length;
+            if (target > current) {
+                for (let i = current; i < target; i++) {
+                    this.taTeams.push({name: '', players: ''});
+                }
+            } else {
+                this.taTeams = this.taTeams.slice(0, target);
+            }
+            this.updateTaTotalPlayers();
+        },
+
+        updateTaTotalPlayers() {
+            let total = 0;
+            for (const team of this.taTeams) {
+                const players = team.players
+                    .split('\n')
+                    .map(p => p.trim())
+                    .filter(p => p.length > 0);
+                total += players.length;
+            }
+            this.taTotalPlayers = total;
         },
         
         init() {

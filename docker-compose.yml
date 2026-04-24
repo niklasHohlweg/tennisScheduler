@@ -21,7 +21,7 @@ services:
   tennis-scheduler:
     build: .
     ports:
-      - "10.20.0.1:8501:5000"
+      - "8501:5000"
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=change-this-secret-key-in-production
