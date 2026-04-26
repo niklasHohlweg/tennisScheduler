@@ -535,6 +535,12 @@ class Database:
                     logger.warning(f"Cannot regenerate schedule: {result[0]} matches already played")
                     return False
                 
+                # Delete any existing unplayed matches before inserting the new schedule
+                cursor.execute(
+                    "DELETE FROM matches WHERE tournament_id = %s AND winner IS NULL",
+                    (tournament_id,)
+                )
+
                 # Insert new matches
                 for round_num, round_data in enumerate(schedule, 1):
                     if isinstance(round_data, dict):  # Time-based

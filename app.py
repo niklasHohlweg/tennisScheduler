@@ -441,11 +441,19 @@ def create_app(config_name='default'):
                 # Get match_type from tournament, default to 'single' for backwards compatibility
                 match_type = tournament.get('match_type', 'single')
                 
+                # Load actual per-team player counts so the scheduler can respect
+                # each team's real roster size (relevant for team_assignment mode
+                # where teams may have different numbers of players)
+                players_by_team_counts = db.get_players_by_team(tournament_id, session['user_id'])
+                team_player_counts = {team: len(players) for team, players in players_by_team_counts.items()} \
+                    if players_by_team_counts else None
+
                 scheduler = TennisScheduler(
                     tournament['num_courts'],
                     tournament['teams'],
                     tournament['players_per_team'],
-                    match_type=match_type
+                    match_type=match_type,
+                    team_player_counts=team_player_counts
                 )
                 
                 if tournament['mode'] == 'time_based':

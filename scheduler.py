@@ -8,7 +8,7 @@ from collections import Counter
 class TennisScheduler:
     """Generate optimal tennis match schedules"""
     
-    def __init__(self, num_courts, teams, players_per_team=4, match_type='single'):
+    def __init__(self, num_courts, teams, players_per_team=4, match_type='single', team_player_counts=None):
         self.num_courts = num_courts
         self.teams = teams if isinstance(teams, list) else [f"Team {i+1}" for i in range(teams)]
         self.num_teams = len(self.teams)
@@ -16,6 +16,9 @@ class TennisScheduler:
         self.max_players_per_round = num_courts * 2
         self.players_per_team = players_per_team
         self.match_type = match_type
+        
+        # Per-team player counts (used when teams have unequal sizes, e.g. team_assignment mode)
+        self.team_player_counts = team_player_counts  # dict {team_name: player_count} or None
         
         # Calculate max simultaneous matches per team based on match type
         if match_type == 'double':
@@ -55,6 +58,11 @@ class TennisScheduler:
         remaining_pairings = all_pairings.copy()
 
         for round_num in range(1, max_rounds + 1):
+            # If all pairings have been played, start a new round-robin cycle
+            # so that the available time is used fully and teams play equally often
+            if not remaining_pairings:
+                remaining_pairings = all_pairings.copy()
+
             round_matches = self.create_optimal_time_round(remaining_pairings, team_game_counts, round_num)
             
             # If no more matches can be created, stop
@@ -134,9 +142,20 @@ class TennisScheduler:
                 continue
                 
             t1, t2 = pairing
+            # Determine per-team simultaneous match limit (actual player count if available)
+            if self.team_player_counts:
+                if self.match_type == 'double':
+                    limit_t1 = self.team_player_counts.get(t1, self.players_per_team) // 2
+                    limit_t2 = self.team_player_counts.get(t2, self.players_per_team) // 2
+                else:
+                    limit_t1 = self.team_player_counts.get(t1, self.players_per_team)
+                    limit_t2 = self.team_player_counts.get(t2, self.players_per_team)
+            else:
+                limit_t1 = self.max_simultaneous_matches_per_team
+                limit_t2 = self.max_simultaneous_matches_per_team
             # Check if both teams can play another match (within their simultaneous limit)
-            if (team_matches_this_round[t1] < self.max_simultaneous_matches_per_team and
-                team_matches_this_round[t2] < self.max_simultaneous_matches_per_team):
+            if (team_matches_this_round[t1] < limit_t1 and
+                    team_matches_this_round[t2] < limit_t2):
                 round_matches.append(pairing)
                 team_matches_this_round[t1] += 1
                 team_matches_this_round[t2] += 1
