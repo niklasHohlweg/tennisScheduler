@@ -1,16 +1,16 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
     container_name: tennis-db
     environment:
       - POSTGRES_USER=tennis_user
-      - POSTGRES_PASSWORD=tennis_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=tennis_scheduler
     volumes:
       - tennis_postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tennis-internal
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tennis_user -d tennis_scheduler"]
@@ -20,23 +20,32 @@ services:
 
   tennis-scheduler:
     build: .
-    ports:
-      - "8501:5000"
+    container_name: tennis-app
     environment:
       - FLASK_ENV=production
-      - SECRET_KEY=change-this-secret-key-in-production
+      - SECRET_KEY=${SECRET_KEY}
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=tennis_scheduler
       - DB_USER=tennis_user
-      - DB_PASSWORD=tennis_password
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - .:/app
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    container_name: tennis-app
+    networks:
+      - tennis-internal
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.tennis.rule=Host(`juni.niknetic.de`)"
+      - "traefik.http.routers.tennis.entrypoints=websecure"
+      - "traefik.http.routers.tennis.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.tennis.middlewares=security-headers@file"
+      - "traefik.http.services.tennis.loadbalancer.server.port=5000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/"]
       interval: 30s
@@ -47,3 +56,9 @@ services:
 volumes:
   tennis_postgres_data:
     driver: local
+
+networks:
+  tennis-internal:
+    driver: bridge
+  proxy:
+    external: true
