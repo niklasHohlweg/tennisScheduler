@@ -2,6 +2,11 @@
 import os
 from datetime import timedelta
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 class Config:
     """Base configuration"""
@@ -16,6 +21,12 @@ class Config:
     DB_NAME = os.getenv('DB_NAME', 'tennis_scheduler')
     DB_USER = os.getenv('DB_USER', 'tennis_user')
     DB_PASSWORD = os.getenv('DB_PASSWORD', 'tennis_password')
+
+    # Authentik / OIDC
+    AUTHENTIK_ISSUER = os.getenv('AUTHENTIK_ISSUER', '')
+    AUTHENTIK_CLIENT_ID = os.getenv('AUTHENTIK_CLIENT_ID', '')
+    AUTHENTIK_CLIENT_SECRET = os.getenv('AUTHENTIK_CLIENT_SECRET', '')
+    AUTHENTIK_REDIRECT_URI = os.getenv('AUTHENTIK_REDIRECT_URI', '')
     
     # Session
     SESSION_COOKIE_NAME = 'tennis_session'

@@ -4,7 +4,7 @@ A modern web application for managing tennis tournaments with match scheduling, 
 
 ## 🎾 Features
 
-- **User Authentication**: Email-based login system
+- **User Authentication**: Authentik SSO via OpenID Connect
 - **Tournament Management**: Create, edit, and delete tournaments
 - **Player Name Input**: ✨ NEW! Enter actual player names and randomly assign them to teams
 - **Smart Scheduling**: 
@@ -35,7 +35,7 @@ A modern web application for managing tennis tournaments with match scheduling, 
 
 ### Creating a Tournament
 
-1. **Login**: Enter your email (account created automatically)
+1. **Login**: Use the Authentik SSO button to authenticate
 2. **Create Tournament**: Click "Neues Turnier" and configure:
    - Tournament name
    - Mode (Time-based or Round Robin)

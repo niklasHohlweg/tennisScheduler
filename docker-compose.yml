@@ -21,6 +21,8 @@ services:
   tennis-scheduler:
     build: .
     container_name: tennis-app
+    env_file:
+      - .env
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=${SECRET_KEY}
@@ -29,6 +31,10 @@ services:
       - DB_NAME=tennis_scheduler
       - DB_USER=tennis_user
       - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - AUTHENTIK_ISSUER=${AUTHENTIK_ISSUER}
+      - AUTHENTIK_CLIENT_ID=${AUTHENTIK_CLIENT_ID}
+      - AUTHENTIK_CLIENT_SECRET=${AUTHENTIK_CLIENT_SECRET}
+      - AUTHENTIK_REDIRECT_URI=${AUTHENTIK_REDIRECT_URI}
     volumes:
       - .:/app
     depends_on:

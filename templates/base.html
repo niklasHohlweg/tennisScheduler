@@ -117,7 +117,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
-                    <a href="{{ url_for('login') }}" class="flex items-center group">
+                    <a href="{{ url_for('dashboard') if session.user_id else url_for('auth_login') }}" class="flex items-center group">
                         <span class="text-2xl sports-icon">🎾</span>
                         <span class="ml-3 text-xl font-semibold text-white tracking-tight">JuNi OPEN</span>
                     </a>
@@ -137,7 +137,7 @@
                     </a>
                     <div class="border-l border-brand-teal h-8 mx-2"></div>
                     <span class="text-brand-light-green text-sm font-medium hidden xl:inline">{{ session.user_email }}</span>
-                    <a href="{{ url_for('logout') }}" class="ml-2 text-brand-blue bg-white px-4 py-2 rounded-brand text-sm font-semibold hover:bg-brand-light-green">
+                    <a href="{{ url_for('auth_logout') }}" class="ml-2 text-brand-blue bg-white px-4 py-2 rounded-brand text-sm font-semibold hover:bg-brand-light-green">
                         Abmelden
                     </a>
                 </div>
@@ -155,7 +155,7 @@
                 </div>
                 {% else %}
                 <div class="flex items-center">
-                    <a href="{{ url_for('login') }}" class="btn-primary bg-brand-green text-white px-6 py-2 rounded-brand text-sm font-semibold">
+                    <a href="{{ url_for('auth_login') }}" class="btn-primary bg-brand-green text-white px-6 py-2 rounded-brand text-sm font-semibold">
                         Anmelden
                     </a>
                 </div>
@@ -185,7 +185,7 @@
                 </a>
                 <div class="border-t border-brand-blue my-2"></div>
                 <div class="px-4 py-2 text-brand-light-green text-sm font-medium">{{ session.user_email }}</div>
-                <a href="{{ url_for('logout') }}" class="block text-white bg-brand-blue px-4 py-3 rounded-brand text-base font-semibold hover:bg-brand-blue">
+                <a href="{{ url_for('auth_logout') }}" class="block text-white bg-brand-blue px-4 py-3 rounded-brand text-base font-semibold hover:bg-brand-blue">
                     Abmelden
                 </a>
             </div>

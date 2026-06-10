@@ -8,12 +8,14 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
+    authentik_sub TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
     last_login TIMESTAMP DEFAULT NOW()
 );
 
 -- Create index on email for faster lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_authentik_sub ON users(authentik_sub);
 
 -- Create tournaments table
 CREATE TABLE IF NOT EXISTS tournaments (

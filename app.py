@@ -2,6 +2,9 @@
 import os
 import io
 import logging
+from urllib.parse import urlencode
+
+from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from functools import wraps
 from datetime import datetime, timedelta
@@ -26,6 +29,27 @@ def create_app(config_name='default'):
     
     # Load configuration
     app.config.from_object(config[config_name])
+
+    oauth = OAuth(app)
+    authentik_issuer = app.config.get('AUTHENTIK_ISSUER', '').rstrip('/')
+    authentik_client_id = app.config.get('AUTHENTIK_CLIENT_ID', '')
+    authentik_client_secret = app.config.get('AUTHENTIK_CLIENT_SECRET', '')
+    authentik_redirect_uri = app.config.get('AUTHENTIK_REDIRECT_URI', '')
+
+    authentik_configured = all(
+        [authentik_issuer, authentik_client_id, authentik_client_secret, authentik_redirect_uri]
+    )
+
+    if authentik_configured:
+        oauth.register(
+            name='authentik',
+            client_id=authentik_client_id,
+            client_secret=authentik_client_secret,
+            server_metadata_url=f'{authentik_issuer}/.well-known/openid-configuration',
+            client_kwargs={'scope': 'openid email profile'},
+        )
+    else:
+        logger.warning('Authentik OIDC configuration is incomplete; login routes will redirect to an error page.')
     
     # Initialize database
     db = Database(app.config)
@@ -47,14 +71,18 @@ def create_app(config_name='default'):
     @app.context_processor
     def inject_utils():
         return dict(timedelta=timedelta)
+
+    def get_authentik_client():
+        return oauth.create_client('authentik')
     
     # Authentication decorator
     def login_required(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            if 'user_id' not in session:
+            if 'user_id' not in session or 'user_email' not in session:
                 flash('Bitte melden Sie sich an.', 'warning')
-                return redirect(url_for('login'))
+                session['post_login_redirect'] = request.full_path.rstrip('?')
+                return redirect(url_for('auth_login'))
             
             # Verify user still exists in database
             db = get_db()
@@ -62,7 +90,7 @@ def create_app(config_name='default'):
                 logger.warning(f"User {session.get('user_id')} not found in database, clearing session")
                 session.clear()
                 flash('Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.', 'warning')
-                return redirect(url_for('login'))
+                return redirect(url_for('auth_login'))
             
             return f(*args, **kwargs)
         return decorated_function
@@ -70,43 +98,120 @@ def create_app(config_name='default'):
     # ==================== AUTHENTICATION ROUTES ====================
     
     @app.route('/')
-    @app.route('/login', methods=['GET', 'POST'])
-    def login():
-        """User login/registration"""
+    def index():
         if 'user_id' in session:
             return redirect(url_for('dashboard'))
-        if request.method == 'POST':
-            email = request.form.get('email', '').strip().lower()
-            
-            if not email or '@' not in email:
-                flash('Bitte geben Sie eine gültige E-Mail-Adresse ein.', 'error')
-                return render_template('login.html')
-            
-            db = get_db()
-            user, is_new_user = db.get_or_create_user(email)
-            
-            if user:
-                session.permanent = True
-                session['user_id'] = user['id']
-                session['user_email'] = user['email']
-                
-                if is_new_user:
-                    flash(f'Willkommen! Ihr Konto wurde erstellt.', 'success')
-                else:
-                    flash(f'Willkommen zurück!', 'success')
-                
-                return redirect(url_for('dashboard'))
-            else:
-                flash('Fehler bei der Anmeldung. Bitte versuchen Sie es erneut.', 'error')
-        
-        return render_template('login.html')
+        return redirect(url_for('auth_login'))
+
+    @app.route('/login')
+    def login():
+        return redirect(url_for('auth_login'))
+
+    @app.route('/auth/login')
+    def auth_login():
+        """Redirect the user to Authentik for login."""
+        if 'user_id' in session:
+            return redirect(url_for('dashboard'))
+
+        client = get_authentik_client()
+        if client is None:
+            flash('Authentik ist nicht konfiguriert.', 'error')
+            return render_template('error.html', error='Authentik ist nicht konfiguriert.'), 500
+
+        return client.authorize_redirect(authentik_redirect_uri)
+
+    @app.route('/auth/callback')
+    def auth_callback():
+        """Exchange the Authentik authorization code for a local session."""
+        client = get_authentik_client()
+        if client is None:
+            flash('Authentik ist nicht konfiguriert.', 'error')
+            return redirect(url_for('auth_login'))
+
+        try:
+            token = client.authorize_access_token()
+        except Exception as exc:
+            logger.error(f'Authentik callback failed: {exc}')
+            flash('Anmeldung über Authentik ist fehlgeschlagen.', 'error')
+            return redirect(url_for('auth_login'))
+
+        userinfo = {}
+        claims = {}
+
+        try:
+            response = client.get('userinfo', token=token)
+            if response and response.status_code == 200:
+                userinfo = response.json() or {}
+        except Exception as exc:
+            logger.warning(f'Authentik userinfo request failed: {exc}')
+
+        try:
+            claims = client.parse_id_token(token) or {}
+        except Exception as exc:
+            logger.warning(f'Authentik id_token parsing failed: {exc}')
+
+        email = (userinfo.get('email') or claims.get('email') or '').strip().lower()
+        authentik_sub = userinfo.get('sub') or claims.get('sub')
+
+        if not email:
+            logger.error('Authentik login did not provide an email claim.')
+            flash('Authentik hat keine E-Mail-Adresse geliefert.', 'error')
+            return redirect(url_for('auth_login'))
+
+        db = get_db()
+        user, is_new_user = db.get_or_create_user(email, authentik_sub=authentik_sub)
+
+        if not user:
+            flash('Fehler bei der Anmeldung. Bitte versuchen Sie es erneut.', 'error')
+            return redirect(url_for('auth_login'))
+
+        post_login_redirect = session.get('post_login_redirect')
+        session.clear()
+        session.permanent = True
+        session['user_id'] = user['id']
+        session['user_email'] = user['email']
+        session['authentik_sub'] = user.get('authentik_sub') or authentik_sub
+        session['id_token'] = token.get('id_token')
+
+        if is_new_user:
+            flash('Willkommen! Ihr Konto wurde erstellt.', 'success')
+        else:
+            flash('Willkommen zurück!', 'success')
+
+        if post_login_redirect and post_login_redirect.startswith('/'):
+            return redirect(post_login_redirect)
+
+        return redirect(url_for('dashboard'))
     
     @app.route('/logout')
     def logout():
-        """User logout"""
+        return redirect(url_for('auth_logout'))
+
+    @app.route('/auth/logout')
+    def auth_logout():
+        """Clear the local session and end the Authentik session if possible."""
+        client = get_authentik_client()
+        id_token = session.get('id_token')
         session.clear()
-        flash('Sie wurden erfolgreich abgemeldet.', 'info')
-        return redirect(url_for('login'))
+
+        if client is None:
+            return redirect(url_for('auth_login'))
+
+        try:
+            metadata = client.load_server_metadata()
+        except Exception as exc:
+            logger.warning(f'Could not load Authentik metadata during logout: {exc}')
+            return redirect(url_for('auth_login'))
+
+        end_session_endpoint = metadata.get('end_session_endpoint')
+        if not end_session_endpoint:
+            return redirect(url_for('auth_login'))
+
+        params = {'post_logout_redirect_uri': url_for('auth_login', _external=True)}
+        if id_token:
+            params['id_token_hint'] = id_token
+
+        return redirect(f"{end_session_endpoint}?{urlencode(params)}")
     
     # ==================== DASHBOARD ====================
     

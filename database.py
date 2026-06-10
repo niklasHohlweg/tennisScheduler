@@ -38,11 +38,25 @@ class Database:
             conn.close()
     
     def init_db(self):
-        """Check if database is accessible"""
+        """Check if database is accessible and apply required schema updates."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT 1 FROM tournaments LIMIT 1")
+
+                # Keep existing databases aligned with the current application schema.
+                cursor.execute("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS authentik_sub TEXT
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_authentik_sub ON users(authentik_sub)")
+
+                cursor.execute("""
+                    ALTER TABLE tournaments
+                    ADD COLUMN IF NOT EXISTS start_time TIMESTAMP
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_start_time ON tournaments(start_time)")
+
                 cursor.close()
             return True
         except Exception as e:
@@ -51,15 +65,19 @@ class Database:
     
     # ==================== USER OPERATIONS ====================
     
-    def get_or_create_user(self, email):
-        """Get user by email or create if doesn't exist. Returns (user_dict, is_new_user)"""
+    def get_or_create_user(self, email, authentik_sub=None):
+        """Get user by email or create if it doesn't exist.
+
+        Returns (user_dict, is_new_user). The users table is kept as a thin
+        cache for Authentik identities keyed by email.
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 
                 # Check if user exists
                 cursor.execute("""
-                    SELECT id, email, created_at, last_login
+                    SELECT id, email, authentik_sub, created_at, last_login
                     FROM users
                     WHERE email = %s
                 """, (email.lower(),))
@@ -70,19 +88,23 @@ class Database:
                 if user:
                     # Update last login
                     cursor.execute("""
-                        UPDATE users SET last_login = NOW()
+                        UPDATE users
+                        SET last_login = NOW(),
+                            authentik_sub = COALESCE(%s, authentik_sub)
                         WHERE email = %s
-                    """, (email.lower(),))
+                    """, (authentik_sub, email.lower()))
                     user_dict = dict(user)
                     user_dict['id'] = str(user_dict['id'])
+                    if authentik_sub:
+                        user_dict['authentik_sub'] = authentik_sub
                     logger.info(f"User logged in: {email}")
                 else:
                     # Create new user
                     cursor.execute("""
-                        INSERT INTO users (email, created_at, last_login)
-                        VALUES (%s, NOW(), NOW())
-                        RETURNING id, email, created_at, last_login
-                    """, (email.lower(),))
+                        INSERT INTO users (email, authentik_sub, created_at, last_login)
+                        VALUES (%s, %s, NOW(), NOW())
+                        RETURNING id, email, authentik_sub, created_at, last_login
+                    """, (email.lower(), authentik_sub))
                     user = cursor.fetchone()
                     user_dict = dict(user)
                     user_dict['id'] = str(user_dict['id'])
@@ -117,7 +139,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute("""
-                    SELECT id, email, created_at, last_login
+                    SELECT id, email, authentik_sub, created_at, last_login
                     FROM users
                     WHERE id = %s
                 """, (user_id,))
