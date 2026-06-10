@@ -106,7 +106,7 @@ def create_app(config_name='default'):
     def index():
         if 'user_id' in session:
             return redirect(url_for('dashboard'))
-        return redirect(url_for('auth_login'))
+        return render_template('auth_landing.html')
 
     @app.route('/login')
     def login():
@@ -184,7 +184,6 @@ def create_app(config_name='default'):
         session['user_id'] = user['id']
         session['user_email'] = user['email']
         session['authentik_sub'] = user.get('authentik_sub') or authentik_sub
-        session['id_token'] = token.get('id_token')
 
         if is_new_user:
             flash('Willkommen! Ihr Konto wurde erstellt.', 'success')
@@ -204,7 +203,6 @@ def create_app(config_name='default'):
     def auth_logout():
         """Clear the local session and end the Authentik session if possible."""
         client = get_authentik_client()
-        id_token = session.get('id_token')
         session.clear()
 
         if client is None:
@@ -221,8 +219,6 @@ def create_app(config_name='default'):
             return redirect(url_for('auth_login'))
 
         params = {'post_logout_redirect_uri': get_external_url('index')}
-        if id_token:
-            params['id_token_hint'] = id_token
 
         return redirect(f"{end_session_endpoint}?{urlencode(params)}")
     

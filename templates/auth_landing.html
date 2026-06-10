@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Anmelden - JuNi OPEN{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-10 sm:py-16">
+    <div class="bg-white shadow-lg rounded-brand border border-brand-border p-6 sm:p-10 text-center">
+        <div class="text-5xl sm:text-6xl mb-4 sports-icon">🎾</div>
+        <h1 class="text-2xl sm:text-4xl font-bold text-brand-text mb-4">JuNi OPEN</h1>
+        <p class="text-base sm:text-lg text-gray-600 mb-8 max-w-lg mx-auto">
+            Verwalten Sie Turniere, Spielpläne und Ergebnisse mit Authentik SSO.
+        </p>
+        <a href="{{ url_for('auth_login') }}" class="btn-primary inline-flex items-center justify-center bg-brand-green text-white font-semibold px-6 py-3 rounded-brand text-base min-h-[48px]">
+            Mit Authentik anmelden
+        </a>
+    </div>
+</div>
+{% endblock %}
