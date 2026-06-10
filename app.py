@@ -136,47 +136,70 @@ def create_app(config_name='default'):
     @app.route('/auth/callback')
     def auth_callback():
         """Exchange the Authentik authorization code for a local session."""
+        # If Authentik returned an OAuth error (e.g. access_denied, state mismatch),
+        # go straight to the landing page – not back to /auth/login – to break the loop.
+        oauth_error = request.args.get('error')
+        if oauth_error:
+            desc = request.args.get('error_description', oauth_error)
+            logger.error(f'Authentik returned error: {oauth_error}: {desc}')
+            flash(f'Anmeldung fehlgeschlagen: {desc}', 'error')
+            return redirect(url_for('index'))
+
         client = get_authentik_client()
         if client is None:
             flash('Authentik ist nicht konfiguriert.', 'error')
-            return redirect(url_for('auth_login'))
+            return redirect(url_for('index'))
 
         try:
             token = client.authorize_access_token()
         except Exception as exc:
             logger.error(f'Authentik callback failed: {exc}')
             flash('Anmeldung über Authentik ist fehlgeschlagen.', 'error')
-            return redirect(url_for('auth_login'))
+            return redirect(url_for('index'))
 
-        userinfo = {}
-        claims = {}
+        # Strategy 1: Authlib >= 1.0 auto-fetches userinfo for OIDC flows
+        # and stores it under the 'userinfo' key in the token dict.
+        userinfo = token.get('userinfo') or {}
 
-        try:
-            response = client.get('userinfo', token=token)
-            if response and response.status_code == 200:
-                userinfo = response.json() or {}
-        except Exception as exc:
-            logger.warning(f'Authentik userinfo request failed: {exc}')
+        # Strategy 2: hit the userinfo endpoint directly with the access token.
+        if not userinfo.get('email'):
+            try:
+                metadata = client.load_server_metadata()
+                userinfo_endpoint = metadata.get('userinfo_endpoint')
+                if userinfo_endpoint:
+                    resp = client.get(userinfo_endpoint, token=token)
+                    if resp and resp.status_code == 200:
+                        userinfo = resp.json() or {}
+            except Exception as exc:
+                logger.warning(f'Authentik userinfo fetch failed: {exc}')
 
-        try:
-            claims = client.parse_id_token(token) or {}
-        except Exception as exc:
-            logger.warning(f'Authentik id_token parsing failed: {exc}')
+        # Strategy 3: decode the id_token JWT payload without signature
+        # verification just to get the email claim (validation already happened
+        # when Authlib exchanged the code).
+        if not userinfo.get('email') and token.get('id_token'):
+            try:
+                import base64 as _b64, json as _json
+                payload_b64 = token['id_token'].split('.')[1]
+                padding = 4 - len(payload_b64) % 4
+                payload_bytes = _b64.urlsafe_b64decode(payload_b64 + '=' * padding)
+                userinfo = _json.loads(payload_bytes) or {}
+            except Exception as exc:
+                logger.warning(f'id_token JWT decode failed: {exc}')
 
-        email = (userinfo.get('email') or claims.get('email') or '').strip().lower()
-        authentik_sub = userinfo.get('sub') or claims.get('sub')
+        email = userinfo.get('email', '').strip().lower()
+        authentik_sub = userinfo.get('sub', '')
 
         if not email:
-            logger.error('Authentik login did not provide an email claim.')
+            logger.error(f'No email in userinfo. Keys present: {list(userinfo.keys())}')
             flash('Authentik hat keine E-Mail-Adresse geliefert.', 'error')
-            return redirect(url_for('auth_login'))
+            return redirect(url_for('index'))
 
         db = get_db()
         user, is_new_user = db.get_or_create_user(email, authentik_sub=authentik_sub)
 
         if not user:
             flash('Fehler bei der Anmeldung. Bitte versuchen Sie es erneut.', 'error')
-            return redirect(url_for('auth_login'))
+            return redirect(url_for('index'))
 
         post_login_redirect = session.get('post_login_redirect')
         session.clear()
