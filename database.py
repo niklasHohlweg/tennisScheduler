@@ -38,24 +38,37 @@ class Database:
             conn.close()
     
     def init_db(self):
-        """Check if database is accessible and apply required schema updates."""
+        """Check if database is accessible and apply required schema updates.
+
+        Uses a PostgreSQL transaction-level advisory lock (id 7461749) so that
+        only one Gunicorn worker at a time runs the DDL statements.  All other
+        workers block until the first one commits, then see the columns already
+        exist and finish immediately.
+        """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+
+                # Serialize DDL across all workers to prevent deadlocks.
+                cursor.execute("SELECT pg_advisory_xact_lock(7461749)")
+
                 cursor.execute("SELECT 1 FROM tournaments LIMIT 1")
 
-                # Keep existing databases aligned with the current application schema.
                 cursor.execute("""
                     ALTER TABLE users
                     ADD COLUMN IF NOT EXISTS authentik_sub TEXT
                 """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_authentik_sub ON users(authentik_sub)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_users_authentik_sub ON users(authentik_sub)"
+                )
 
                 cursor.execute("""
                     ALTER TABLE tournaments
                     ADD COLUMN IF NOT EXISTS start_time TIMESTAMP
                 """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tournaments_start_time ON tournaments(start_time)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_tournaments_start_time ON tournaments(start_time)"
+                )
 
                 cursor.close()
             return True

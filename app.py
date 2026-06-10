@@ -157,25 +157,17 @@ def create_app(config_name='default'):
             flash('Anmeldung über Authentik ist fehlgeschlagen.', 'error')
             return redirect(url_for('index'))
 
-        # Strategy 1: Authlib >= 1.0 auto-fetches userinfo for OIDC flows
-        # and stores it under the 'userinfo' key in the token dict.
-        userinfo = token.get('userinfo') or {}
+        # Fetch user claims via the dedicated userinfo endpoint.
+        # client.userinfo() uses the access_token as a Bearer credential and
+        # resolves the endpoint URL from the OIDC discovery document, which is
+        # the only reliable way to get the email claim from Authentik.
+        userinfo = {}
+        try:
+            userinfo = client.userinfo(token=token) or {}
+        except Exception as exc:
+            logger.warning(f'Authentik userinfo() call failed: {exc}')
 
-        # Strategy 2: hit the userinfo endpoint directly with the access token.
-        if not userinfo.get('email'):
-            try:
-                metadata = client.load_server_metadata()
-                userinfo_endpoint = metadata.get('userinfo_endpoint')
-                if userinfo_endpoint:
-                    resp = client.get(userinfo_endpoint, token=token)
-                    if resp and resp.status_code == 200:
-                        userinfo = resp.json() or {}
-            except Exception as exc:
-                logger.warning(f'Authentik userinfo fetch failed: {exc}')
-
-        # Strategy 3: decode the id_token JWT payload without signature
-        # verification just to get the email claim (validation already happened
-        # when Authlib exchanged the code).
+        # Fallback: decode id_token JWT payload (already validated by Authlib).
         if not userinfo.get('email') and token.get('id_token'):
             try:
                 import base64 as _b64, json as _json
@@ -186,11 +178,13 @@ def create_app(config_name='default'):
             except Exception as exc:
                 logger.warning(f'id_token JWT decode failed: {exc}')
 
+        logger.info(f'Authentik userinfo keys: {list(userinfo.keys())}')
+
         email = userinfo.get('email', '').strip().lower()
         authentik_sub = userinfo.get('sub', '')
 
         if not email:
-            logger.error(f'No email in userinfo. Keys present: {list(userinfo.keys())}')
+            logger.error(f'No email claim in userinfo. Full userinfo: {userinfo!r}')
             flash('Authentik hat keine E-Mail-Adresse geliefert.', 'error')
             return redirect(url_for('index'))
 
