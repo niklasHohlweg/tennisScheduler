@@ -2,8 +2,6 @@
 import os
 import io
 import logging
-from urllib.parse import urlencode
-
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from functools import wraps
@@ -233,11 +231,13 @@ def create_app(config_name='default'):
 
         end_session_endpoint = metadata.get('end_session_endpoint')
         if not end_session_endpoint:
-            return redirect(url_for('auth_login'))
+            return redirect(url_for('index'))
 
-        params = {'post_logout_redirect_uri': get_external_url('index')}
-
-        return redirect(f"{end_session_endpoint}?{urlencode(params)}")
+        # Do not send post_logout_redirect_uri — Authentik rejects any URI that
+        # is not explicitly whitelisted in the application's allowed redirect
+        # list, which causes "Bad Request / malformed".  Authentik will show its
+        # own logout confirmation page and the user can navigate back from there.
+        return redirect(end_session_endpoint)
     
     # ==================== DASHBOARD ====================
     
