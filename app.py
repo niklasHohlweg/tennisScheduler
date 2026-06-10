@@ -8,6 +8,7 @@ from authlib.integrations.flask_client import OAuth
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from functools import wraps
 from datetime import datetime, timedelta
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import config
 from database import Database, get_db
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 def create_app(config_name='default'):
     """Application factory"""
     app = Flask(__name__)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
     
     # Load configuration
     app.config.from_object(config[config_name])
@@ -74,6 +76,9 @@ def create_app(config_name='default'):
 
     def get_authentik_client():
         return oauth.create_client('authentik')
+
+    def get_external_url(endpoint):
+        return url_for(endpoint, _external=True)
     
     # Authentication decorator
     def login_required(f):
@@ -118,7 +123,15 @@ def create_app(config_name='default'):
             flash('Authentik ist nicht konfiguriert.', 'error')
             return render_template('error.html', error='Authentik ist nicht konfiguriert.'), 500
 
-        return client.authorize_redirect(authentik_redirect_uri)
+        callback_url = get_external_url('auth_callback')
+        if authentik_redirect_uri and authentik_redirect_uri != callback_url:
+            logger.warning(
+                'AUTHENTIK_REDIRECT_URI (%s) differs from the generated callback URL (%s); using the generated URL.',
+                authentik_redirect_uri,
+                callback_url,
+            )
+
+        return client.authorize_redirect(callback_url)
 
     @app.route('/auth/callback')
     def auth_callback():
@@ -207,7 +220,7 @@ def create_app(config_name='default'):
         if not end_session_endpoint:
             return redirect(url_for('auth_login'))
 
-        params = {'post_logout_redirect_uri': url_for('auth_login', _external=True)}
+        params = {'post_logout_redirect_uri': get_external_url('index')}
         if id_token:
             params['id_token_hint'] = id_token
 
